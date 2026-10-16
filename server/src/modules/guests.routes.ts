@@ -197,7 +197,7 @@ guestsRouter.post(
   }),
 );
 
-/** Minimal RFC 4180 parser (quoted fields, escaped quotes, CRLF/LF). */
+/** Minimal RFC 4180 parser (quoted fields, escaped quotes, CRLF/LF). Blank lines are kept (as ['']) so callers can report accurate row numbers. */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -229,7 +229,7 @@ export function parseCsv(text: string): string[][] {
     row.push(field);
     rows.push(row);
   }
-  return rows.filter((r) => r.some((f) => f.trim() !== ''));
+  return rows;
 }
 
 const HEADER_ALIASES: Record<string, keyof GuestInput> = {
@@ -258,9 +258,13 @@ guestsRouter.post(
   ah(async (req, res) => {
     const { bookingId, csv, dryRun } = req.body as { bookingId: string; csv: string; dryRun: boolean };
     const booking = await bookingOr404(bookingId);
-    const table = parseCsv(csv);
-    if (table.length < 2) throw AppError.badRequest('The CSV needs a header row and at least one guest');
-    const header = table[0].map((h) => HEADER_ALIASES[h.trim().toLowerCase()] ?? null);
+    const isBlank = (r: string[]) => r.every((f) => f.trim() === '');
+    const all = parseCsv(csv);
+    const headerIdx = all.findIndex((r) => !isBlank(r));
+    // Keep each record's 1-based line number so errors point at the right spreadsheet row.
+    const table = all.map((cells, i) => ({ cells, rowNo: i + 1 })).slice(Math.max(headerIdx, 0)).filter((r, i) => i === 0 || !isBlank(r.cells));
+    if (headerIdx === -1 || table.length < 2) throw AppError.badRequest('The CSV needs a header row and at least one guest');
+    const header = table[0].cells.map((h) => HEADER_ALIASES[h.trim().toLowerCase()] ?? null);
     if (!header.includes('name')) throw AppError.badRequest('The CSV must have a "name" column. Expected columns: name,email,phone,group,side,plusOnes,dietary,table');
     const dataRows = table.slice(1);
     if (dataRows.length > MAX_IMPORT) throw AppError.badRequest(`At most ${MAX_IMPORT} guests can be imported at once (found ${dataRows.length})`);
@@ -271,8 +275,7 @@ guestsRouter.post(
     const valid: GuestInput[] = [];
     const errors: { row: number; message: string }[] = [];
     const skipped: { row: number; message: string }[] = [];
-    dataRows.forEach((cells, idx) => {
-      const rowNo = idx + 2; // 1-based incl. header
+    dataRows.forEach(({ cells, rowNo }) => {
       const obj: Record<string, string> = {};
       header.forEach((key, i) => {
         if (key && cells[i] !== undefined) obj[key] = cells[i].trim();
