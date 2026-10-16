@@ -5,3 +5,4 @@ coverage
 server/uploads
 *.log
 .vite
+uploads-test

@@ -95,12 +95,12 @@ export const businessSettingsSchema = z.object({
     defaultTaxes: z.array(quoteTaxSchema).max(5).default([]),
     defaultMilestones: z.array(milestoneSchema).min(1).max(8).default(DEFAULT_MILESTONES),
     terms: z.string().trim().max(8000).default(''),
-  }),
+  }).default({}),
   invoice: z.object({
     prefix: z.string().trim().max(8).regex(/^[A-Z]*$/).default('INV'),
     footer: z.string().trim().max(1000).default(''),
     bankDetails: z.string().trim().max(1000).default(''),
-  }),
+  }).default({}),
   cancellationPolicy: z.string().trim().max(5000).default(''),
   /** Percentage of paid amounts that is refundable when a client cancels N+ days before the event. */
   refundRules: z
@@ -127,7 +127,7 @@ export const businessSettingsSchema = z.object({
     paymentReminderDays: z.array(z.number().int().min(0).max(60)).max(5).default([7, 1]),
     eventReminderDays: z.array(z.number().int().min(0).max(60)).max(5).default([14, 2]),
     whatsappEnabled: z.boolean().default(false),
-  }),
+  }).default({}),
   dataRetentionMonths: z.number().int().min(6).max(120).default(36),
 });
 export type BusinessSettings = z.infer<typeof businessSettingsSchema>;
