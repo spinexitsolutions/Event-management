@@ -276,6 +276,7 @@ export function collectionRouter(key: string) {
     ah(async (req, res) => {
       const existing = await delegate().findUnique({ where: { id: req.params.id } });
       if (!existing) throw AppError.notFound(def.label);
+      if (key === 'venues' && (await prisma.booking.count({ where: { venueId: existing.id } }))) throw AppError.conflict('This venue is linked to bookings. Archive it instead of deleting it.');
       await delegate().delete({ where: { id: existing.id } });
       await audit(req, { action: `${key}.delete`, entityType: def.model, entityId: existing.id, summary: String(existing[def.titleField] ?? '') });
       ok(res, { ok: true });

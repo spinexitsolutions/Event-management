@@ -184,6 +184,7 @@ html.lenis, html.lenis body { height: auto; }
 }
 
 /* ───────────── Admin (fixed, calm palette independent of the public theme) ───────────── */
+@layer components {
 body.admin { @apply bg-adm-bg font-admin text-adm-ink antialiased; font-size: 14px; }
 .adm-card { @apply rounded-xl border border-adm-line bg-adm-panel; }
 .adm-input {
@@ -201,3 +202,4 @@ body.admin { @apply bg-adm-bg font-admin text-adm-ink antialiased; font-size: 14
 .adm-table th { @apply whitespace-nowrap border-b border-adm-line px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-adm-muted; }
 .adm-table td { @apply border-b border-adm-line/70 px-4 py-3 align-middle; }
 .adm-table tbody tr:hover { @apply bg-adm-bg/60; }
+}

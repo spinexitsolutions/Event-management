@@ -1,10 +1,11 @@
 import rateLimit from 'express-rate-limit';
-import { isTest } from '../config/env';
+import { env, isTest } from '../config/env';
 
 const make = (windowMs: number, limit: number, message: string) =>
   rateLimit({
     windowMs,
-    limit: isTest ? 10_000 : limit,
+    // Relaxed in development so local tooling and repeated sign-ins are not blocked.
+    limit: isTest || env.NODE_ENV === 'development' ? Math.max(limit, 2_000) : limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     message: { error: { code: 'RATE_LIMITED', message } },

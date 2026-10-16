@@ -193,7 +193,7 @@ export interface Column<T> {
   cell: (row: T) => ReactNode;
   className?: string;
 }
-export function DataTable<T>({ columns, rows, rowKey, onRowClick, loading, empty, className }: { columns: Column<T>[]; rows: T[] | undefined; rowKey: (r: T) => string; onRowClick?: (r: T) => void; loading?: boolean; empty?: ReactNode; className?: string }) {
+export function DataTable<T>({ columns, rows, rowKey, onRowClick, loading, empty, className, rowClassName }: { columns: Column<T>[]; rows: T[] | undefined; rowKey: (r: T) => string; onRowClick?: (r: T) => void; loading?: boolean; empty?: ReactNode; className?: string; rowClassName?: (r: T) => string | undefined }) {
   return (
     <div className={cn('adm-card overflow-hidden', className)}>
       <div className="overflow-x-auto">
@@ -220,7 +220,7 @@ export function DataTable<T>({ columns, rows, rowKey, onRowClick, loading, empty
               ))}
             {!loading &&
               rows?.map((r) => (
-                <tr key={rowKey(r)} onClick={onRowClick ? () => onRowClick(r) : undefined} className={onRowClick ? 'cursor-pointer' : undefined}>
+                <tr key={rowKey(r)} onClick={onRowClick ? () => onRowClick(r) : undefined} className={cn(onRowClick && 'cursor-pointer', rowClassName?.(r))}>
                   {columns.map((c) => (
                     <td key={c.key} className={c.className}>
                       {c.cell(r)}

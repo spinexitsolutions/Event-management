@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../config/db';
 import { env } from '../config/env';
 import { ah, ok } from '../lib/http';
-import { requirePermission } from '../middleware/auth';
+import { requireAnyPermission, requirePermission } from '../middleware/auth';
 import { audit } from '../services/audit.service';
 import { aiConfigured } from '../services/ai.service';
 import { emailConfigured, whatsappConfigured } from '../services/notify.service';
@@ -10,7 +10,7 @@ import { getBusiness, updateBusiness } from '../services/siteConfig.service';
 
 export const settingsRouter = Router();
 
-settingsRouter.get('/business', requirePermission('settings.manage'), ah(async (_req, res) => ok(res, await getBusiness())));
+settingsRouter.get('/business', requireAnyPermission('settings.manage', 'notifications.manage'), ah(async (_req, res) => ok(res, await getBusiness())));
 settingsRouter.put(
   '/business',
   requirePermission('settings.manage'),
