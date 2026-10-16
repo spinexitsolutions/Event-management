@@ -45,7 +45,17 @@ export function createApp() {
   );
   app.use(cors({ origin: (o, cb) => cb(null, !o || origins.includes(o)), credentials: true }));
   app.use(compression());
-  app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/api/health' } }));
+  app.use(
+    pinoHttp({
+      logger,
+      autoLogging: { ignore: (req) => req.url === '/api/health' },
+      // Keep request logs compact and free of cookies/headers.
+      serializers: {
+        req: (req: { id: unknown; method: string; url: string }) => ({ id: req.id, method: req.method, url: req.url }),
+        res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+      },
+    }),
+  );
 
   // Webhooks need the raw body for signature verification — mount before JSON parsing.
   app.use('/api/v1/webhooks', express.raw({ type: '*/*', limit: '1mb' }), webhookRouter);

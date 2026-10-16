@@ -38,11 +38,28 @@
 ## Phases
 
 1. Architecture, structure, database design ✅
-2. Design system, homepage, public pages
-3. Backend APIs, auth, roles & permissions
-4. Admin dashboard, theme customizer, CMS, media library
-5. Services, categories, portfolio, packages, inquiry system
-6. Clients, quotations, booking workflow, client portal
-7. Vendors, tasks, calendar, invoices, payments
-8. Notifications, reports, SEO, advanced features
-9. Tests, security review, performance, deployment
+2. Design system, homepage, public pages ✅
+3. Backend APIs, auth, roles & permissions ✅
+4. Admin dashboard, theme customizer, CMS, media library ✅
+5. Services, categories, portfolio, packages, inquiry system ✅
+6. Clients, quotations, booking workflow, client portal ✅
+7. Vendors, tasks, calendar, invoices, payments ✅
+8. Notifications, reports, SEO, advanced features ✅ (see below)
+9. Tests, security review, performance, deployment ✅
+
+## Advanced / optional features — status
+
+| Feature | Status |
+| --- | --- |
+| Guest lists, RSVP, QR invitations, table assignment, check-in & attendance | Implemented (admin booking workspace → Guests; public `/rsvp/:code`) |
+| Event microsites with countdown, schedule, gallery, photo-sharing link | Implemented (`/e/:slug`) |
+| 3D stage concepts | Implemented (React Three Fiber, lazy, poster fallback on mobile / reduced motion / no WebGL) |
+| AI inquiry triage & AI-drafted quotations | Implemented behind `AI_PROVIDER` (suggestions only, human-approved, catalogue prices only) |
+| Calendar integration | Client `.ics` download per booking; staff calendar in the admin |
+| Map integration | Google Maps embed (contact section); venue lat/lng stored |
+| PWA | Web manifest only (no service worker, to avoid stale CMS content) |
+| Multi-currency-ready | Currency stored on quotations, bookings, payments and packages; one business currency is configured |
+| Public ticketing (ticket categories, capacity, waitlists, promo codes) | **Not implemented** — guest/RSVP covers invited events; ticketing would add `TicketType`/`Order` models on top of the existing payment flow |
+| Multilingual content | **Not implemented** — recommended path: locale-keyed page versions and collection translations with `/:locale` routes |
+| AI planning checklists, budget & venue recommendations | **Not implemented** — task templates cover checklists today |
+| Camera-based QR scanning | Check-in accepts typed codes or handheld scanners (which type into the field) |
