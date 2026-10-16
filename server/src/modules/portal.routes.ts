@@ -45,7 +45,7 @@ portalRouter.get(
       prisma.quotation.findMany({ where: { clientId, status: { in: ['SENT', 'VIEWED', 'REVISION_REQUESTED', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CONVERTED'] } }, orderBy: { updatedAt: 'desc' }, select: { id: true, number: true, title: true, status: true, validUntil: true, currentVersion: true, versions: { orderBy: { version: 'desc' }, take: 1, select: { totalMinor: true } }, currency: true } }),
       prisma.inquiry.findMany({ where: { clientId, status: { notIn: ['ARCHIVED'] } }, orderBy: { createdAt: 'desc' }, take: 5, select: { reference: true, eventType: true, status: true, createdAt: true } }),
     ]);
-    ok(res, { client, bookings: bookings.map((b) => ({ ...b, eventDate: isoDate(b.eventDate), statusLabel: BOOKING_STATUS_LABELS[b.status] })), quotations, inquiries });
+    ok(res, { client, bookings: bookings.map((b) => ({ ...b, eventDate: isoDate(b.eventDate), statusLabel: BOOKING_STATUS_LABELS[b.status] })), quotations: quotations.map((q) => ({ ...q, validUntil: isoDate(q.validUntil) })), inquiries });
   }),
 );
 

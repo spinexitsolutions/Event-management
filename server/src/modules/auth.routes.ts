@@ -143,6 +143,24 @@ authRouter.post(
   }),
 );
 
+/** Re-sends the verification link for an unverified client registration (generic response, rate-limited). */
+authRouter.post(
+  '/resend-verification',
+  authLimiter,
+  validate({ body: z.object({ email: emailSchema }) }),
+  ah(async (req, res) => {
+    const user = await prisma.user.findUnique({ where: { email: req.body.email } });
+    if (user && user.status === 'INVITED' && user.roleKey === 'CLIENT' && user.passwordHash) {
+      const recent = await prisma.passwordResetToken.count({ where: { userId: user.id, purpose: 'verify', createdAt: { gt: new Date(Date.now() - 5 * 60_000) } } });
+      if (!recent) {
+        const token = await issueUserToken(user.id, 'verify', 60 * 24);
+        await sendEmail({ to: user.email, template: 'email_verification', vars: { name: user.name, url: `${env.APP_URL}/verify-email?token=${token}` } });
+      }
+    }
+    ok(res, { message: 'If that account is awaiting verification, a new link is on its way.' });
+  }),
+);
+
 export async function linkClientProfile(userId: string, email: string, name: string, phone: string) {
   const client = await prisma.client.findUnique({ where: { email } });
   if (client) {

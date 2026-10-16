@@ -22,7 +22,7 @@ export function PortalLayout() {
             <NavLink to="/portal" end className={({ isActive }) => cn('opacity-70 hover:opacity-100', isActive && 'text-primary opacity-100')}>
               My events
             </NavLink>
-            <NavLink to="/portal/account" className={({ isActive }) => cn('hidden opacity-70 hover:opacity-100 sm:inline', isActive && 'text-primary opacity-100')}>
+            <NavLink to="/portal/account" className={({ isActive }) => cn('opacity-70 hover:opacity-100', isActive && 'text-primary opacity-100')}>
               Account
             </NavLink>
             <span className="hidden normal-case tracking-normal text-muted md:inline">{user?.name}</span>
