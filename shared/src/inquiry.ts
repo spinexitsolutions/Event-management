@@ -64,6 +64,7 @@ export const contactSubmitSchema = z.object({
   consent: z.literal(true, { errorMap: () => ({ message: 'Please accept the privacy notice to continue' }) }),
   website: z.string().max(0).default(''),
   startedAt: z.number().int().optional(),
+  captchaToken: z.string().max(2048).optional(),
 });
 
 export const trackInquirySchema = z.object({

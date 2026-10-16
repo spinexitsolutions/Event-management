@@ -92,7 +92,7 @@ export function Header({ overHero }: { overHero: boolean }) {
 
         <div className={cn('hidden items-center gap-5 lg:flex', style === 'centered' && 'absolute right-12 top-6')}>
           {theme.header.showClientLogin && (
-            <Link to={portalHref} className="text-[0.72rem] uppercase opacity-80 hover:opacity-100" style={{ letterSpacing: '0.22em' }}>
+            <Link to={portalHref} className="whitespace-nowrap text-[0.72rem] uppercase opacity-80 hover:opacity-100" style={{ letterSpacing: '0.22em' }}>
               {user ? (user.isStaff ? 'Admin' : 'My portal') : 'Client login'}
             </Link>
           )}

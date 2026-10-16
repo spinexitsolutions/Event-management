@@ -282,7 +282,7 @@ publicRouter.post(
   formLimiter,
   validate({ body: contactSubmitSchema }),
   ah(async (req, res) => {
-    await assertHuman(req.body.startedAt, undefined, req.ip ?? null);
+    await assertHuman(req.body.startedAt, req.body.captchaToken, req.ip ?? null);
     const site = await getPublishedSite();
     const { inquiry } = await createInquiry(req, {
       name: req.body.name,
@@ -308,7 +308,7 @@ publicRouter.post(
       source: 'contact-form',
       utm: {},
       website: '',
-    });
+    }, { humanVerified: true });
     ok(res, { reference: inquiry.reference }, undefined, 201);
   }),
 );

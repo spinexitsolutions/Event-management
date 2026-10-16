@@ -35,8 +35,8 @@ async function uniqueReference() {
   throw new Error('Could not allocate inquiry reference');
 }
 
-export async function createInquiry(req: Request, input: InquirySubmit) {
-  await assertHuman(input.startedAt, input.captchaToken, req.ip ?? null);
+export async function createInquiry(req: Request, input: InquirySubmit, opts: { humanVerified?: boolean } = {}) {
+  if (!opts.humanVerified) await assertHuman(input.startedAt, input.captchaToken, req.ip ?? null);
 
   // Duplicate protection: identical submission from the same email within 30 minutes returns the original.
   const fingerprint = sha256(JSON.stringify([input.email, input.eventType, input.eventDate, input.location, input.guestCount, input.budgetRange, input.notes]));
