@@ -3,7 +3,8 @@
  * Every admin screen should compose these primitives for consistency.
  */
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
-import { forwardRef, useEffect, useId, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import type React from 'react';
+import { Children, cloneElement, forwardRef, isValidElement, useEffect, useId, useState, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/cn';
 import { Modal } from '@/components/ui/Modal';
@@ -81,17 +82,32 @@ export function StatusBadge({ status, label }: { status: string; label?: string 
 
 /* ───── Form controls ───── */
 
+/**
+ * Labelled form field. When it wraps a single control, the label is associated with it automatically
+ * (an id is generated unless the control already has one).
+ */
 export function Field({ label, error, hint, children, className, required }: { label?: ReactNode; error?: string; hint?: ReactNode; children: ReactNode; className?: string; required?: boolean }) {
+  const autoId = useId();
+  const only = Children.count(children) === 1 && isValidElement(children) ? (children as React.ReactElement<{ id?: string; 'aria-describedby'?: string }>) : null;
+  const controlId = only ? (only.props.id ?? autoId) : undefined;
+  const msgId = `${autoId}-msg`;
+  const control = only ? cloneElement(only, { id: controlId, 'aria-describedby': error || hint ? msgId : only.props['aria-describedby'] }) : children;
   return (
     <div className={className}>
-      {label && (
-        <span className="adm-label">
-          {label}
-          {required && <span className="text-red-600"> *</span>}
-        </span>
-      )}
-      {children}
-      {error ? <p className="mt-1 text-xs text-red-600" role="alert">{error}</p> : hint ? <p className="mt-1 text-xs text-adm-muted">{hint}</p> : null}
+      {label &&
+        (controlId ? (
+          <label htmlFor={controlId} className="adm-label">
+            {label}
+            {required && <span className="text-red-600"> *</span>}
+          </label>
+        ) : (
+          <span className="adm-label">
+            {label}
+            {required && <span className="text-red-600"> *</span>}
+          </span>
+        ))}
+      {control}
+      {error ? <p id={msgId} className="mt-1 text-xs text-red-600" role="alert">{error}</p> : hint ? <p id={msgId} className="mt-1 text-xs text-adm-muted">{hint}</p> : null}
     </div>
   );
 }

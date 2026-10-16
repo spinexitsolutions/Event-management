@@ -13,7 +13,7 @@ describe('api client', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ error: { code: 'VALIDATION_ERROR', message: 'Bad', details: [{ path: 'email', message: 'Invalid email' }] } }), { status: 422 }),
     );
-    const err = await api.post('/public/inquiries', { a: 1 }).catch((e) => e);
+    const err = (await api.post('/public/inquiries', { a: 1 }).catch((e: unknown) => e)) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(422);
     expect(err.fieldErrors).toEqual({ email: 'Invalid email' });

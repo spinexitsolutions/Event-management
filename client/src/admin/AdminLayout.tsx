@@ -119,15 +119,15 @@ export function AdminLayout() {
   );
 
   return (
-    <div className="min-h-screen lg:pl-60">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 bg-adm-dark lg:block">{sidebar}</aside>
+    <div className="min-h-screen lg:pl-60 print:pl-0">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 bg-adm-dark lg:block print:hidden">{sidebar}</aside>
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           <aside className="absolute inset-y-0 left-0 w-64 bg-adm-dark">{sidebar}</aside>
         </div>
       )}
-      <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-adm-line bg-white/90 px-4 backdrop-blur lg:px-8">
+      <header className="sticky top-0 z-30 flex h-16 print:hidden items-center justify-between gap-3 border-b border-adm-line bg-white/90 px-4 backdrop-blur lg:px-8">
         <button className="rounded-lg p-2 text-adm-muted hover:bg-adm-bg lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
           <Menu className="h-5 w-5" />
         </button>
