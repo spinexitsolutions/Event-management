@@ -7,7 +7,7 @@ import { AppError } from '../lib/AppError';
 import { isoDate, toDateOnly } from '../lib/dates';
 import { assertVenueAvailable } from './conflicts.service';
 import { nextNumber } from './counter.service';
-import { notifyUser, sendEmail } from './notify.service';
+import { notifyUser, sendEmail, sendWhatsApp } from './notify.service';
 import { versionToPricing } from './quotation.service';
 import { calculateQuote } from '@maison/shared';
 
@@ -126,7 +126,11 @@ export async function afterTransition(bookingId: string, from: BookingStatus, to
   if (from === to) return;
   const b = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, include: { client: true, manager: true } });
   const vars = { name: b.client.name, title: b.title, reference: b.reference, eventDate: isoDate(b.eventDate), manager: b.manager?.name ?? 'our team', portalUrl: `${env.APP_URL}/portal/bookings/${b.id}` };
-  if (to === 'CONFIRMED') await sendEmail({ to: b.client.email, template: 'booking_confirmation', vars, automation: 'bookingConfirmation', dedupeKey: `booking-confirmed:${b.id}`, entityType: 'Booking', entityId: b.id });
+  if (to === 'CONFIRMED') {
+    await sendEmail({ to: b.client.email, template: 'booking_confirmation', vars, automation: 'bookingConfirmation', dedupeKey: `booking-confirmed:${b.id}`, entityType: 'Booking', entityId: b.id });
+    // Optional WhatsApp (only when enabled in settings and a provider is configured; otherwise logged as SKIPPED).
+    if (b.client.phone) await sendWhatsApp(b.client.phone, `Your event “${b.title}” on ${vars.eventDate} is confirmed. Details: ${vars.portalUrl}`, { dedupeKey: `wa-confirmed:${b.id}`, entityType: 'Booking', entityId: b.id });
+  }
   if (to === 'COMPLETED') {
     await sendEmail({ to: b.client.email, template: 'event_completion', vars, automation: 'eventCompletion', dedupeKey: `booking-completed:${b.id}`, entityType: 'Booking', entityId: b.id });
     await sendEmail({ to: b.client.email, template: 'feedback_request', vars: { ...vars, portalUrl: `${env.APP_URL}/portal/bookings/${b.id}?feedback=1` }, automation: 'feedbackRequest', dedupeKey: `feedback:${b.id}`, entityType: 'Booking', entityId: b.id });

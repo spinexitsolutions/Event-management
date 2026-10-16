@@ -279,6 +279,9 @@ describe('end-to-end event workflow', () => {
     expect((await admin.get(`/api/v1/admin/finance/invoices/${inv.body.data.id}/pdf`)).status).toBe(200);
     expect((await client.get(`/api/v1/portal/bookings/${bookingId}/invoices/${inv.body.data.id}/pdf`)).status).toBe(200);
     expect((await client.post(`/api/v1/portal/bookings/${bookingId}/feedback`, { rating: 5, comment: 'Magical' })).status).toBe(200);
+    const ics = await client.get(`/api/v1/portal/bookings/${bookingId}/calendar.ics`);
+    expect(ics.text).toContain('BEGIN:VEVENT');
+    expect(ics.text).toContain('DTSTART;VALUE=DATE:20270214');
     const audit = await prisma.auditLog.findFirst({ where: { action: 'payment.manual_record', entityId: m.body.data.id } });
     expect(audit).not.toBeNull();
   });

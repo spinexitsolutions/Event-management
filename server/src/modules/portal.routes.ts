@@ -271,6 +271,27 @@ portalRouter.post(
   }),
 );
 
+/** Calendar file for the event (works with Google Calendar, Apple Calendar, Outlook). */
+portalRouter.get(
+  '/bookings/:id/calendar.ics',
+  ah(async (req, res) => {
+    const b = await ownBooking(req, req.params.id);
+    const site = await getPublishedSite();
+    const d = (x: Date) => x.toISOString().slice(0, 10).replace(/-/g, '');
+    const end = new Date((b.eventEndDate ?? b.eventDate).getTime() + 864e5);
+    const esc = (s: string) => s.replace(/[\\;,]/g, (c) => `\\${c}`).replace(/\n/g, '\\n');
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${esc(site.brand.name)}//Events//EN`, 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
+      `UID:${b.id}@${new URL(env.APP_URL).hostname}`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`,
+      `DTSTART;VALUE=DATE:${d(b.eventDate)}`, `DTEND;VALUE=DATE:${d(end)}`, `SUMMARY:${esc(b.title)}`,
+      `LOCATION:${esc([b.venueName, b.city].filter(Boolean).join(', '))}`, `DESCRIPTION:${esc(`${b.reference} — ${site.brand.name}`)}`, 'END:VEVENT', 'END:VCALENDAR',
+    ].join('\r\n');
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${b.reference}.ics"`);
+    res.send(ics);
+  }),
+);
+
 /* ───── Payments ───── */
 
 portalRouter.post(
