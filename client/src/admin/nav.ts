@@ -1,6 +1,6 @@
 import type { Permission } from '@maison/shared';
 import {
-  BarChart3, Bell, ListChecks, Plug, BookOpen, Briefcase, Building2, Calendar, CheckSquare, FileText, Globe, Image, Inbox, LayoutDashboard, Mail, MapPin, Package, Palette, Receipt, Settings, Shield, Users, Wallet, type LucideIcon,
+  BarChart3, Bell, AtSign, ListChecks, Plug, BookOpen, Briefcase, Building2, Calendar, CheckSquare, FileText, Globe, Image, Inbox, LayoutDashboard, Mail, MapPin, Package, Palette, Receipt, Settings, Shield, Users, Wallet, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -57,6 +57,7 @@ export const ADMIN_NAV: NavGroup[] = [
       { to: '/admin/website/settings', label: 'Global content', icon: Settings, any: ['theme.manage'] },
       { to: '/admin/website/content', label: 'Content library', icon: BookOpen, any: ['cms.manage'] },
       { to: '/admin/website/media', label: 'Media library', icon: Image, any: ['media.manage'] },
+      { to: '/admin/website/subscribers', label: 'Subscribers', icon: AtSign, any: ['cms.manage'] },
     ],
   },
   {
