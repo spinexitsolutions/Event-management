@@ -9,6 +9,7 @@ import { portalRoutes } from '@/portal/routes';
 import { cmsRoutes } from '@/admin/cms/routes';
 import { salesRoutes } from '@/admin/sales/routes';
 import { opsRoutes } from '@/admin/ops/routes';
+import { bookingRoutes } from '@/admin/bookings/routes';
 
 function RouteError() {
   const err = useRouteError();
@@ -41,7 +42,7 @@ export const router = createBrowserRouter([
             <AdminLayout />
           </RequireStaff>
         ),
-        children: [...salesRoutes, ...cmsRoutes, ...opsRoutes],
+        children: [...salesRoutes, ...bookingRoutes, ...cmsRoutes, ...opsRoutes],
       },
       {
         path: '/portal',

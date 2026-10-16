@@ -85,7 +85,7 @@ function guestWhere(q: Partial<ListQuery> & { bookingId: string }): Prisma.Guest
     ...(q.rsvp ? { rsvpStatus: q.rsvp } : {}),
     ...(q.group ? { group: q.group } : {}),
     ...(q.side ? { side: q.side } : {}),
-    ...(q.table !== undefined ? { tableLabel: q.table } : {}),
+    ...(q.table !== undefined ? { tableLabel: q.table === '__none' ? '' : q.table } : {}),
     ...(q.checkedIn === 'true' ? { checkedInAt: { not: null } } : q.checkedIn === 'false' ? { checkedInAt: null } : {}),
     ...(q.q
       ? {

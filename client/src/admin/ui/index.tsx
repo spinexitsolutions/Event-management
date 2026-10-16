@@ -212,7 +212,7 @@ export interface Column<T> {
 export function DataTable<T>({ columns, rows, rowKey, onRowClick, loading, empty, className, rowClassName }: { columns: Column<T>[]; rows: T[] | undefined; rowKey: (r: T) => string; onRowClick?: (r: T) => void; loading?: boolean; empty?: ReactNode; className?: string; rowClassName?: (r: T) => string | undefined }) {
   return (
     <div className={cn('adm-card overflow-hidden', className)}>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="adm-table">
           <thead className="bg-adm-bg/60">
             <tr>
