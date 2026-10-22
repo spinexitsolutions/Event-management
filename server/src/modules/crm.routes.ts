@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { emailSchema, INQUIRY_STATUSES } from '@maison/shared';
-import { prisma } from '../config/db';
+import { prisma, withTx } from '../config/db';
 import { AppError } from '../lib/AppError';
 import { toCsv } from '../lib/csv';
 import { isoDate, toDateOnly } from '../lib/dates';
@@ -297,7 +297,7 @@ inquiriesRouter.post(
   ah(async (req, res) => {
     const { refCode } = await import('../lib/crypto');
     const b = req.body;
-    const inq = await prisma.$transaction(async (tx) => {
+    const inq = await withTx(async (tx) => {
       const client = (await tx.client.findUnique({ where: { email: b.email } })) ?? (await tx.client.create({ data: { name: b.name, email: b.email, phone: b.phone, source: b.source } }));
       return tx.inquiry.create({
         data: { reference: `INQ-${refCode(6)}`, clientId: client.id, name: b.name, email: b.email, phone: b.phone, eventType: b.eventType, eventDate: toDateOnly(b.eventDate), location: b.location, guestCount: b.guestCount, budgetRange: b.budgetRange, notes: b.notes, source: b.source, categoryId: b.categoryId, assignedToId: req.user!.id, services: [] },

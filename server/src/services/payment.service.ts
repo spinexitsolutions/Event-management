@@ -1,6 +1,6 @@
 import type { Payment } from '@prisma/client';
 import { formatMoney } from '@maison/shared';
-import { prisma, type Tx } from '../config/db';
+import { prisma, type Tx, withTx, lockRows } from '../config/db';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { AppError } from '../lib/AppError';
@@ -80,10 +80,9 @@ async function applyPayment(tx: Tx, payment: Payment) {
  * of times: the payment row is locked, and a PAID payment is never applied twice.
  */
 export async function markCaptured(orderId: string, providerPaymentId: string, amountMinor: number, method: string) {
-  const result = await prisma.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Payment" WHERE "providerOrderId" = ${orderId} FOR UPDATE`;
-    if (!rows.length) throw AppError.notFound('Payment order');
-    const payment = await tx.payment.findUniqueOrThrow({ where: { id: rows[0].id } });
+  const result = await withTx(async (tx) => {
+    if (!(await lockRows(tx, 'payment', { providerOrderId: orderId }))) throw AppError.notFound('Payment order');
+    const payment = await tx.payment.findFirstOrThrow({ where: { providerOrderId: orderId } });
     if (payment.status === 'PAID' || payment.status === 'PARTIALLY_REFUNDED' || payment.status === 'REFUNDED') return { payment, applied: false, transition: null };
     if (amountMinor !== Number(payment.amountMinor)) {
       await tx.payment.update({ where: { id: payment.id }, data: { status: 'FAILED', failureReason: `Amount mismatch: expected ${payment.amountMinor}, got ${amountMinor}` } });
@@ -139,8 +138,12 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
     payload?: { payment?: { entity: { id: string; order_id: string; amount: number; method: string; error_description?: string } }; refund?: { entity: { id: string; payment_id: string; amount: number; status: string } } };
   };
   const eventId = evt.id ?? `${evt.event}:${evt.payload?.payment?.entity.id ?? evt.payload?.refund?.entity.id ?? 'unknown'}`;
-  const inserted = await prisma.webhookEvent.createMany({ data: [{ provider: paymentProvider.name, eventId, type: evt.event, payload: evt as object }], skipDuplicates: true });
-  if (inserted.count === 0) return { duplicate: true };
+  try {
+    await prisma.webhookEvent.create({ data: { provider: paymentProvider.name, eventId, type: evt.event, payload: evt as object } });
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') return { duplicate: true }; // already received (unique provider + eventId)
+    throw e;
+  }
   try {
     const pay = evt.payload?.payment?.entity;
     if ((evt.event === 'payment.captured' || evt.event === 'order.paid') && pay) await markCaptured(pay.order_id, pay.id, pay.amount, pay.method);
@@ -158,8 +161,8 @@ export async function handleWebhook(rawBody: Buffer, signature: string) {
 
 /** Manual (bank transfer / cash / cheque) payment recorded by authorised finance staff. */
 export async function recordManualPayment(input: { bookingId: string; installmentId: string | null; invoiceId: string | null; amountMinor: number; method: string; reference: string; paidAt: Date; recordedById: string }) {
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${input.bookingId} FOR UPDATE`;
+  const result = await withTx(async (tx) => {
+    await lockRows(tx, 'booking', { id: input.bookingId });
     const booking = await tx.booking.findUniqueOrThrow({ where: { id: input.bookingId } });
     if (booking.status === 'CANCELLED') throw AppError.conflict('Cannot record payments on a cancelled booking');
     if (input.installmentId && !(await tx.installment.findFirst({ where: { id: input.installmentId, bookingId: booking.id } }))) throw AppError.notFound('Instalment');
@@ -195,8 +198,8 @@ export async function recordManualPayment(input: { bookingId: string; installmen
 /* ───── Refunds: request → approve (refunds.approve) → process ───── */
 
 export async function requestRefund(paymentId: string, amountMinor: number, reason: string, userId: string) {
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "Payment" WHERE id = ${paymentId} FOR UPDATE`;
+  return withTx(async (tx) => {
+    await lockRows(tx, 'payment', { id: paymentId });
     const p = await tx.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { refunds: true } });
     if (!['PAID', 'PARTIALLY_REFUNDED'].includes(p.status)) throw AppError.conflict('Only received payments can be refunded');
     const pending = p.refunds.filter((r) => ['REQUESTED', 'APPROVED'].includes(r.status)).reduce((s, r) => s + Number(r.amountMinor), 0);
@@ -226,8 +229,8 @@ export async function decideRefund(refundId: string, approve: boolean, userId: s
     }
   } else providerRefundId = manualReference ? `manual:${refundId}:${manualReference}`.slice(0, 120) : null;
 
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "Payment" WHERE id = ${refund.paymentId} FOR UPDATE`;
+  return withTx(async (tx) => {
+    await lockRows(tx, 'payment', { id: refund.paymentId });
     const p = await tx.payment.findUniqueOrThrow({ where: { id: refund.paymentId } });
     const refunded = Number(p.refundedMinor) + Number(refund.amountMinor);
     await tx.payment.update({ where: { id: p.id }, data: { refundedMinor: BigInt(refunded), status: refunded >= Number(p.amountMinor) ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } });

@@ -8,7 +8,7 @@
 | CSRF | Double-submit token (`me_csrf` cookie + `X-CSRF-Token` header) on every mutating request; strict CORS allow-list; webhooks use signatures instead |
 | Authorisation | Role → permission mapping in the database, enforced by middleware on every admin route; roles re-read on every request; client data scoped by `clientId` in every portal query (guessing an id returns 404) |
 | Validation | zod schemas on every body/query; money recomputed server-side; status transitions via explicit state machines |
-| Injection / XSS | Prisma parameterised queries; Markdown rendered without raw HTML; CMS links restricted to safe schemes; CSV exports neutralise formula injection; Helmet CSP |
+| Injection / XSS | Prisma typed queries (no raw query strings built from user input); Markdown rendered without raw HTML; CMS links restricted to safe schemes; CSV exports neutralise formula injection; Helmet CSP |
 | Uploads | Magic-byte type detection, size limits, image re-encoding (strips metadata), private storage for documents with authorised streaming / signed URLs |
 | Payments | Server-created orders, HMAC signature verification, provider re-fetch, signed + de-duplicated webhooks, idempotent capture with row locks, no card data stored |
 | Rate limiting | Global API limit plus stricter limits for auth, public forms and payments |

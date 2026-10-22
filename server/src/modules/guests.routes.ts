@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { RSVP_STATUSES } from '@maison/shared';
-import { prisma, type Prisma } from '../config/db';
+import { prisma, type Prisma, withTx, lockRows } from '../config/db';
 import { env, isTest } from '../config/env';
 import { AppError } from '../lib/AppError';
 import { refCode } from '../lib/crypto';
@@ -334,10 +334,9 @@ guestsRouter.post(
   ah(async (req, res) => {
     const { code, count, bookingId } = req.body as { code: string; count?: number; bookingId?: string };
     const inviteCode = normCode(code);
-    const result = await prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Guest" WHERE "inviteCode" = ${inviteCode} FOR UPDATE`;
-      if (!locked[0]) throw AppError.notFound('Invitation');
-      const g = await tx.guest.findUniqueOrThrow({ where: { id: locked[0].id } });
+    const result = await withTx(async (tx) => {
+      if (!(await lockRows(tx, 'guest', { inviteCode }))) throw AppError.notFound('Invitation');
+      const g = await tx.guest.findUniqueOrThrow({ where: { inviteCode } });
       if (bookingId && g.bookingId !== bookingId) throw AppError.conflict('This invitation is for a different event');
       const max = g.plusOnes + 1;
       if (g.checkedInAt) {

@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { TASK_PRIORITIES, TASK_STATUSES } from '@maison/shared';
-import { prisma, type Prisma, type Tx } from '../config/db';
+import { prisma, type Prisma, type Tx, withTx, lockRows } from '../config/db';
 import { AppError } from '../lib/AppError';
 import { randomToken } from '../lib/crypto';
 import { addDays, isoDate } from '../lib/dates';
@@ -247,7 +247,7 @@ tasksRouter.post(
     const assignee = assigneeId === undefined ? booking.managerId : assigneeId;
     if (assignee) await assertAssignable(assignee);
 
-    const created = await prisma.$transaction(async (tx) => {
+    const created = await withTx(async (tx) => {
       const max = await tx.task.aggregate({ where: { bookingId }, _max: { sortOrder: true } });
       let order = (max._max.sortOrder ?? -1) + 1;
       const sorted = [...parsed.data].sort((a, b) => phaseRank(a.phase) - phaseRank(b.phase) || a.offsetDays - b.offsetDays);
@@ -336,12 +336,12 @@ tasksRouter.get(
   validate({ query: z.object({ includeDone: z.enum(['true', 'false']).optional(), limit: z.coerce.number().int().min(1).max(500).default(200) }) }),
   ah(async (req, res) => {
     const q = qry<{ includeDone?: string; limit: number }>(req);
-    const rows = await prisma.task.findMany({
-      where: { assigneeId: req.user!.id, ...(q.includeDone === 'true' ? {} : { status: { not: 'DONE' } }), booking: { status: { not: 'CANCELLED' } } },
-      include: { ...taskInclude, booking: { select: { id: true, reference: true, title: true, eventDate: true } } },
-      orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { priority: 'desc' }],
-      take: q.limit,
-    });
+    const where: Prisma.TaskWhereInput = { assigneeId: req.user!.id, ...(q.includeDone === 'true' ? {} : { status: { not: 'DONE' } }), booking: { status: { not: 'CANCELLED' } } };
+    const include = { ...taskInclude, booking: { select: { id: true, reference: true, title: true, eventDate: true } } };
+    // Dated tasks first (soonest due), then undated ones — MongoDB sorts nulls first, so query them separately.
+    const dated = await prisma.task.findMany({ where: { ...where, dueAt: { not: null } }, include, orderBy: [{ dueAt: 'asc' }, { priority: 'desc' }], take: q.limit });
+    const undated = dated.length < q.limit ? await prisma.task.findMany({ where: { ...where, dueAt: null }, include, orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }], take: q.limit - dated.length }) : [];
+    const rows = [...dated, ...undated];
     const now = Date.now();
     ok(
       res,
@@ -434,7 +434,7 @@ tasksRouter.post(
     const booking = await prisma.booking.findUnique({ where: { id: b.bookingId }, select: { id: true } });
     if (!booking) throw AppError.notFound('Booking');
     if (b.assigneeId) await assertAssignable(b.assigneeId);
-    const row = await prisma.$transaction(async (tx) => {
+    const row = await withTx(async (tx) => {
       if (b.dependsOnId) {
         await assertDependency(tx, null, b.bookingId, b.dependsOnId);
         if (b.status === 'DONE') {
@@ -482,7 +482,7 @@ tasksRouter.patch(
   ah(async (req, res) => {
     const b = req.body as z.infer<typeof taskUpdate>;
     if (b.assigneeId) await assertAssignable(b.assigneeId);
-    const { before, row } = await prisma.$transaction(async (tx) => {
+    const { before, row } = await withTx(async (tx) => {
       const before = await tx.task.findUnique({ where: { id: req.params.id } });
       if (!before) throw AppError.notFound('Task');
       if (b.dependsOnId) await assertDependency(tx, before.id, before.bookingId, b.dependsOnId);
@@ -528,10 +528,10 @@ tasksRouter.post(
   canManage,
   validate({ body: z.object({ done: z.boolean().optional() }) }),
   ah(async (req, res) => {
-    const row = await prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<{ checklist: unknown }[]>`SELECT "checklist" FROM "Task" WHERE "id" = ${req.params.id} FOR UPDATE`;
-      if (!locked[0]) throw AppError.notFound('Task');
-      const items = (Array.isArray(locked[0].checklist) ? locked[0].checklist : []) as ChecklistItem[];
+    const row = await withTx(async (tx) => {
+      if (!(await lockRows(tx, 'task', { id: req.params.id }))) throw AppError.notFound('Task');
+      const current = await tx.task.findUniqueOrThrow({ where: { id: req.params.id }, select: { checklist: true } });
+      const items = (Array.isArray(current.checklist) ? current.checklist : []) as unknown as ChecklistItem[];
       const item = items.find((i) => i.id === req.params.itemId);
       if (!item) throw AppError.notFound('Checklist item');
       item.done = typeof req.body.done === 'boolean' ? req.body.done : !item.done;
@@ -547,7 +547,8 @@ tasksRouter.delete(
   ah(async (req, res) => {
     const existing = await prisma.task.findUnique({ where: { id: req.params.id } });
     if (!existing) throw AppError.notFound('Task');
-    await prisma.task.delete({ where: { id: existing.id } });
+    // Clear links from dependent tasks first (MongoDB has no ON DELETE SET NULL for self-relations).
+    await prisma.$transaction([prisma.task.updateMany({ where: { dependsOnId: existing.id }, data: { dependsOnId: null } }), prisma.task.delete({ where: { id: existing.id } })]);
     await audit(req, { action: 'task.delete', entityType: 'booking', entityId: existing.bookingId, summary: existing.title });
     ok(res, { ok: true });
   }),

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma, type Prisma, type Tx } from '../config/db';
+import { prisma, type Prisma, type Tx, withTx, lockRows } from '../config/db';
 import { AppError } from '../lib/AppError';
 import { addDays, isoDate, toDateOnly } from '../lib/dates';
 import { ah, ok, pageMeta, paginate, qry } from '../lib/http';
@@ -154,11 +154,9 @@ resourcesRouter.post(
     if (to < from) throw AppError.badRequest('The return date must be on or after the dispatch date');
     if ((to.getTime() - from.getTime()) / 86_400_000 > MAX_RANGE_DAYS) throw AppError.badRequest(`Allocations cannot exceed ${MAX_RANGE_DAYS} days`);
 
-    const row = await prisma.$transaction(async (tx) => {
+    const row = await withTx(async (tx) => {
       // Lock the resource row so concurrent allocations serialise on this item.
-      const locked = await tx.$queryRaw<{ id: string; name: string; quantity: number; condition: string }[]>`
-        SELECT "id", "name", "quantity", "condition" FROM "Resource" WHERE "id" = ${b.resourceId} FOR UPDATE`;
-      const resource = locked[0];
+      const resource = (await lockRows(tx, 'resource', { id: b.resourceId })) ? await tx.resource.findUnique({ where: { id: b.resourceId }, select: { id: true, name: true, quantity: true, condition: true } }) : null;
       if (!resource) throw AppError.notFound('Resource');
       if (resource.condition === 'RETIRED') throw AppError.conflict(`${resource.name} is retired`);
       const avail = await availability(tx, resource, from, to);
@@ -195,13 +193,13 @@ resourcesRouter.patch(
   validate({ body: allocUpdate }),
   ah(async (req, res) => {
     const b = req.body as z.infer<typeof allocUpdate>;
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await withTx(async (tx) => {
       const existing = await tx.resourceAllocation.findUnique({ where: { id: req.params.allocId } });
       if (!existing) throw AppError.notFound('Allocation');
       if (existing.status === 'CANCELLED') throw AppError.conflict('This allocation was cancelled');
-      const locked = await tx.$queryRaw<{ id: string; name: string; quantity: number; condition: string; ownership: string }[]>`
-        SELECT "id", "name", "quantity", "condition", "ownership" FROM "Resource" WHERE "id" = ${existing.resourceId} FOR UPDATE`;
-      const resource = locked[0];
+      const resource = (await lockRows(tx, 'resource', { id: existing.resourceId }))
+        ? await tx.resource.findUnique({ where: { id: existing.resourceId }, select: { id: true, name: true, quantity: true, condition: true, ownership: true } })
+        : null;
       if (!resource) throw AppError.notFound('Resource');
 
       const quantity = b.quantity ?? existing.quantity;

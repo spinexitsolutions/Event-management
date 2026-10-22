@@ -134,8 +134,10 @@ export async function cleanup() {
   // Orphaned inquiry inspiration uploads (never attached to a submitted inquiry) older than 2 days.
   const orphans = await prisma.mediaAsset.findMany({ where: { folder: 'inquiry-uploads', createdAt: { lt: addDays(now, -2) } }, take: 200 });
   for (const m of orphans) {
-    const used = await prisma.$queryRaw<{ c: bigint }[]>`SELECT COUNT(*)::bigint AS c FROM "Inquiry" WHERE "attachments"::text LIKE ${'%' + m.id + '%'}`;
-    if (Number(used[0].c) === 0) {
+    // Attachments are stored on the inquiry as [{ mediaId, filename }]; uploads are linked within a day of upload.
+    const candidates = await prisma.inquiry.findMany({ where: { createdAt: { gte: addDays(m.createdAt, -1) } }, select: { attachments: true } });
+    const used = candidates.some((i) => Array.isArray(i.attachments) && (i.attachments as { mediaId?: string }[]).some((a) => a?.mediaId === m.id));
+    if (!used) {
       await deleteStored(m.provider, m.storageKey, true);
       await prisma.mediaAsset.delete({ where: { id: m.id } });
     }

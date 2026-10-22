@@ -1,13 +1,15 @@
-// Maison Events — PostgreSQL schema.
-// All money columns are integer minor units (paise/cents) stored as BigInt: a 32-bit Int would overflow
+// Maison Events — MongoDB schema (Prisma MongoDB connector; requires a replica set for transactions).
+// All money fields are integer minor units (paise/cents) stored as BigInt (64-bit): a 32-bit Int would overflow
 // at ≈ ₹2.1 crore, which a large wedding contract can exceed. Never store money as floats.
+// Date-only values (event dates, due dates) are stored as UTC midnight DateTimes.
+// Schema changes are applied with `npm run db:push` (MongoDB has no SQL migrations).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
@@ -20,7 +22,9 @@ enum UserStatus {
 }
 
 model Role {
-  key         String   @id // SUPER_ADMIN, OWNER, ... CLIENT
+  /// Concurrency token: bumped inside transactions to serialise concurrent writers (MongoDB has no SELECT … FOR UPDATE).
+  lockVersion Int @default(0)
+  key         String   @id @map("_id") // SUPER_ADMIN, OWNER, ... CLIENT
   name        String
   description String   @default("")
   permissions String[]
@@ -30,7 +34,7 @@ model Role {
 }
 
 model User {
-  id                String     @id @default(cuid())
+  id                String     @id @default(cuid()) @map("_id")
   email             String     @unique
   passwordHash      String?
   name              String
@@ -64,7 +68,7 @@ model User {
 }
 
 model Session {
-  id          String   @id @default(cuid())
+  id          String   @id @default(cuid()) @map("_id")
   tokenHash   String   @unique
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -80,7 +84,7 @@ model Session {
 }
 
 model PasswordResetToken {
-  id        String    @id @default(cuid())
+  id        String    @id @default(cuid()) @map("_id")
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   tokenHash String    @unique
@@ -93,7 +97,7 @@ model PasswordResetToken {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
+  id         String   @id @default(cuid()) @map("_id")
   actorId    String?
   actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
   action     String // e.g. booking.update, payment.manual_record
@@ -112,7 +116,7 @@ model AuditLog {
 // ───────────────────────────── Website / CMS ─────────────────────────────
 
 model SiteConfig {
-  key              String   @id // "theme" | "site" | "business"
+  key              String   @id @map("_id") // "theme" | "site" | "business"
   draft            Json
   published        Json?
   publishedVersion Int      @default(0)
@@ -122,7 +126,7 @@ model SiteConfig {
 }
 
 model SiteConfigVersion {
-  id            String     @id @default(cuid())
+  id            String     @id @default(cuid()) @map("_id")
   configKey     String
   config        SiteConfig @relation(fields: [configKey], references: [key], onDelete: Cascade)
   version       Int
@@ -141,7 +145,7 @@ enum PageStatus {
 }
 
 model Page {
-  id               String        @id @default(cuid())
+  id               String        @id @default(cuid()) @map("_id")
   slug             String        @unique
   kind             String        @default("STANDARD") // HOME | ABOUT | CONTACT | STANDARD | LEGAL
   title            String
@@ -156,7 +160,7 @@ model Page {
 }
 
 model PageVersion {
-  id            String   @id @default(cuid())
+  id            String   @id @default(cuid()) @map("_id")
   pageId        String
   page          Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
   version       Int
@@ -175,7 +179,7 @@ enum MediaKind {
 }
 
 model MediaAsset {
-  id           String    @id @default(cuid())
+  id           String    @id @default(cuid()) @map("_id")
   url          String
   provider     String    @default("local") // local | cloudinary | external
   storageKey   String? // local path or Cloudinary public id
@@ -209,7 +213,7 @@ enum ContentStatus {
 }
 
 model EventCategory {
-  id          String        @id @default(cuid())
+  id          String        @id @default(cuid()) @map("_id")
   slug        String        @unique
   name        String
   tagline     String        @default("")
@@ -225,7 +229,8 @@ model EventCategory {
   status      ContentStatus @default(DRAFT)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
-  services    Service[]     @relation("CategoryServices")
+  serviceIds  String[]
+  services    Service[]     @relation("CategoryServices", fields: [serviceIds], references: [id])
   projects    PortfolioProject[]
   packages    Package[]
   inquiries   Inquiry[]
@@ -235,7 +240,7 @@ model EventCategory {
 }
 
 model Service {
-  id          String          @id @default(cuid())
+  id          String          @id @default(cuid()) @map("_id")
   slug        String          @unique
   name        String
   summary     String          @default("")
@@ -254,9 +259,12 @@ model Service {
   status      ContentStatus   @default(DRAFT)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
-  categories  EventCategory[] @relation("CategoryServices")
-  packages    Package[]       @relation("PackageServices")
-  projects    PortfolioProject[] @relation("ProjectServices")
+  categoryIds String[]
+  categories  EventCategory[] @relation("CategoryServices", fields: [categoryIds], references: [id])
+  packageIds  String[]
+  packages    Package[]       @relation("PackageServices", fields: [packageIds], references: [id])
+  projectIds  String[]
+  projects    PortfolioProject[] @relation("ProjectServices", fields: [projectIds], references: [id])
 
   @@index([status, sortOrder])
 }
@@ -268,7 +276,7 @@ enum PricingModel {
 }
 
 model Package {
-  id            String         @id @default(cuid())
+  id            String         @id @default(cuid()) @map("_id")
   slug          String         @unique
   name          String
   tier          String         @default("") // Basic / Premium / Luxury …
@@ -297,7 +305,8 @@ model Package {
   sortOrder     Int            @default(0)
   categoryId    String?
   category      EventCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  services      Service[]      @relation("PackageServices")
+  serviceIds    String[]
+  services      Service[]      @relation("PackageServices", fields: [serviceIds], references: [id])
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   inquiries     Inquiry[]
@@ -306,7 +315,7 @@ model Package {
 }
 
 model PortfolioProject {
-  id            String         @id @default(cuid())
+  id            String         @id @default(cuid()) @map("_id")
   slug          String         @unique
   title         String
   summary       String         @default("")
@@ -331,7 +340,8 @@ model PortfolioProject {
   status        ContentStatus  @default(DRAFT)
   sortOrder     Int            @default(0)
   seo           Json           @default("{}")
-  services      Service[]      @relation("ProjectServices")
+  serviceIds    String[]
+  services      Service[]      @relation("ProjectServices", fields: [serviceIds], references: [id])
   testimonials  Testimonial[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -342,7 +352,7 @@ model PortfolioProject {
 }
 
 model Testimonial {
-  id          String            @id @default(cuid())
+  id          String            @id @default(cuid()) @map("_id")
   clientName  String
   eventLabel  String            @default("")
   quote       String
@@ -360,7 +370,7 @@ model Testimonial {
 }
 
 model TeamMember {
-  id        String        @id @default(cuid())
+  id        String        @id @default(cuid()) @map("_id")
   name      String
   title     String        @default("")
   bio       String        @default("")
@@ -373,7 +383,7 @@ model TeamMember {
 }
 
 model Faq {
-  id        String        @id @default(cuid())
+  id        String        @id @default(cuid()) @map("_id")
   question  String
   answer    String
   group     String        @default("General")
@@ -384,7 +394,7 @@ model Faq {
 }
 
 model ClientLogo {
-  id        String        @id @default(cuid())
+  id        String        @id @default(cuid()) @map("_id")
   name      String
   logoUrl   String
   href      String        @default("")
@@ -397,7 +407,7 @@ model ClientLogo {
 }
 
 model BlogPost {
-  id          String        @id @default(cuid())
+  id          String        @id @default(cuid()) @map("_id")
   slug        String        @unique
   title       String
   excerpt     String        @default("")
@@ -417,7 +427,7 @@ model BlogPost {
 }
 
 model NewsletterSubscriber {
-  id          String    @id @default(cuid())
+  id          String    @id @default(cuid()) @map("_id")
   email       String    @unique
   status      String    @default("SUBSCRIBED") // SUBSCRIBED | UNSUBSCRIBED
   source      String    @default("website")
@@ -429,7 +439,7 @@ model NewsletterSubscriber {
 // ───────────────────────────── CRM & sales ─────────────────────────────
 
 model Client {
-  id          String    @id @default(cuid())
+  id          String    @id @default(cuid()) @map("_id")
   name        String
   email       String    @unique
   phone       String    @default("")
@@ -467,7 +477,7 @@ enum InquiryStatus {
 }
 
 model Inquiry {
-  id                 String         @id @default(cuid())
+  id                 String         @id @default(cuid()) @map("_id")
   reference          String         @unique
   clientId           String
   client             Client         @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -480,8 +490,8 @@ model Inquiry {
   category           EventCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   packageId          String?
   package            Package?       @relation(fields: [packageId], references: [id], onDelete: SetNull)
-  eventDate          DateTime?      @db.Date
-  alternativeDate    DateTime?      @db.Date
+  eventDate          DateTime?     
+  alternativeDate    DateTime?     
   dateFlexible       Boolean        @default(false)
   location           String
   guestCount         Int
@@ -517,7 +527,7 @@ model Inquiry {
 
 /** Communication log + internal notes for inquiries/clients/bookings. */
 model Communication {
-  id         String   @id @default(cuid())
+  id         String   @id @default(cuid()) @map("_id")
   kind       String // NOTE | CALL | EMAIL | MEETING | WHATSAPP | SYSTEM
   direction  String   @default("INTERNAL") // INBOUND | OUTBOUND | INTERNAL
   subject    String   @default("")
@@ -537,7 +547,7 @@ model Communication {
 }
 
 model Consultation {
-  id          String   @id @default(cuid())
+  id          String   @id @default(cuid()) @map("_id")
   inquiryId   String
   inquiry     Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
   scheduledAt DateTime
@@ -557,7 +567,7 @@ model Consultation {
 }
 
 model Reminder {
-  id         String    @id @default(cuid())
+  id         String    @id @default(cuid()) @map("_id")
   userId     String
   entityType String // inquiry | booking | client
   entityId   String
@@ -582,21 +592,23 @@ enum QuotationStatus {
 }
 
 model Quotation {
-  id             String           @id @default(cuid())
+  /// Concurrency token: bumped inside transactions to serialise concurrent writers (MongoDB has no SELECT … FOR UPDATE).
+  lockVersion Int @default(0)
+  id             String           @id @default(cuid()) @map("_id")
   number         String           @unique
   title          String
   clientId       String
   client         Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
   inquiryId      String?
   inquiry        Inquiry?         @relation(fields: [inquiryId], references: [id], onDelete: SetNull)
-  eventDate      DateTime?        @db.Date
+  eventDate      DateTime?       
   venue          String           @default("")
   guestCount     Int?
   currency       String           @default("INR")
   status         QuotationStatus  @default(DRAFT)
   currentVersion Int              @default(1)
   acceptedVersion Int?
-  validUntil     DateTime?        @db.Date
+  validUntil     DateTime?       
   sentAt         DateTime?
   viewedAt       DateTime?
   respondedAt    DateTime?
@@ -612,7 +624,7 @@ model Quotation {
 }
 
 model QuotationVersion {
-  id            String    @id @default(cuid())
+  id            String    @id @default(cuid()) @map("_id")
   quotationId   String
   quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
   version       Int
@@ -652,7 +664,9 @@ enum BookingStatus {
 }
 
 model Booking {
-  id               String         @id @default(cuid())
+  /// Concurrency token: bumped inside transactions to serialise concurrent writers (MongoDB has no SELECT … FOR UPDATE).
+  lockVersion Int @default(0)
+  id               String         @id @default(cuid()) @map("_id")
   reference        String         @unique
   title            String
   clientId         String
@@ -663,8 +677,8 @@ model Booking {
   inquiry          Inquiry?       @relation(fields: [inquiryId], references: [id], onDelete: SetNull)
   categoryId       String?
   category         EventCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  eventDate        DateTime       @db.Date
-  eventEndDate     DateTime?      @db.Date
+  eventDate        DateTime      
+  eventEndDate     DateTime?     
   startTime        String         @default("") // "18:30"
   venueId          String?
   venue            Venue?         @relation(fields: [venueId], references: [id], onDelete: SetNull)
@@ -712,7 +726,7 @@ model Booking {
 }
 
 model BookingService {
-  id          String  @id @default(cuid())
+  id          String  @id @default(cuid()) @map("_id")
   bookingId   String
   booking     Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   serviceId   String?
@@ -723,12 +737,12 @@ model BookingService {
 }
 
 model ChangeRequest {
-  id            String    @id @default(cuid())
+  id            String    @id @default(cuid()) @map("_id")
   bookingId     String
   booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   type          String // CHANGE | SPECIAL_REQUEST | RESCHEDULE | CANCELLATION
   message       String
-  requestedDate DateTime? @db.Date
+  requestedDate DateTime?
   status        String    @default("OPEN") // OPEN | APPROVED | DECLINED | WITHDRAWN
   resolutionNote String   @default("")
   createdById   String?
@@ -740,7 +754,7 @@ model ChangeRequest {
 }
 
 model Document {
-  id             String    @id @default(cuid())
+  id             String    @id @default(cuid()) @map("_id")
   bookingId      String?
   booking        Booking?  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   vendorId       String?
@@ -758,7 +772,7 @@ model Document {
 }
 
 model Message {
-  id         String    @id @default(cuid())
+  id         String    @id @default(cuid()) @map("_id")
   bookingId  String
   booking    Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   authorId   String?
@@ -772,7 +786,7 @@ model Message {
 }
 
 model Feedback {
-  id        String   @id @default(cuid())
+  id        String   @id @default(cuid()) @map("_id")
   bookingId String   @unique
   booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   rating    Int
@@ -785,13 +799,13 @@ model Feedback {
 // ───────────────────────────── Finance ─────────────────────────────
 
 model Installment {
-  id          String    @id @default(cuid())
+  id          String    @id @default(cuid()) @map("_id")
   bookingId   String
   booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   label       String
   amountMinor BigInt
   paidMinor   BigInt    @default(0)
-  dueDate     DateTime? @db.Date
+  dueDate     DateTime?
   status      String    @default("PENDING") // PENDING | PARTIAL | PAID | WAIVED
   sortOrder   Int       @default(0)
   lastReminderAt DateTime?
@@ -811,7 +825,7 @@ enum InvoiceStatus {
 }
 
 model Invoice {
-  id            String        @id @default(cuid())
+  id            String        @id @default(cuid()) @map("_id")
   number        String        @unique
   bookingId     String
   booking       Booking       @relation(fields: [bookingId], references: [id], onDelete: Restrict)
@@ -826,7 +840,7 @@ model Invoice {
   currency      String        @default("INR")
   status        InvoiceStatus @default(ISSUED)
   issuedAt      DateTime      @default(now())
-  dueDate       DateTime?     @db.Date
+  dueDate       DateTime?    
   notes         String        @default("")
   createdById   String?
   payments      Payment[]
@@ -844,7 +858,9 @@ enum PaymentStatus {
 }
 
 model Payment {
-  id                String        @id @default(cuid())
+  /// Concurrency token: bumped inside transactions to serialise concurrent writers (MongoDB has no SELECT … FOR UPDATE).
+  lockVersion Int @default(0)
+  id                String        @id @default(cuid()) @map("_id")
   bookingId         String
   booking           Booking       @relation(fields: [bookingId], references: [id], onDelete: Restrict)
   installmentId     String?
@@ -873,7 +889,7 @@ model Payment {
 }
 
 model Refund {
-  id               String   @id @default(cuid())
+  id               String   @id @default(cuid()) @map("_id")
   paymentId        String
   payment          Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
   amountMinor      BigInt
@@ -890,7 +906,7 @@ model Refund {
 }
 
 model WebhookEvent {
-  id          String   @id @default(cuid())
+  id          String   @id @default(cuid()) @map("_id")
   provider    String
   eventId     String
   type        String
@@ -903,7 +919,7 @@ model WebhookEvent {
 }
 
 model Expense {
-  id           String    @id @default(cuid())
+  id           String    @id @default(cuid()) @map("_id")
   bookingId    String?
   booking      Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
   vendorId     String?
@@ -913,9 +929,9 @@ model Expense {
   description  String
   amountMinor  BigInt
   currency     String    @default("INR")
-  incurredOn   DateTime  @db.Date
+  incurredOn   DateTime 
   status       String    @default("UNPAID") // UNPAID | PAID
-  paidOn       DateTime? @db.Date
+  paidOn       DateTime?
   reference    String    @default("")
   receiptMediaId String?
   createdById  String?
@@ -930,7 +946,9 @@ model Expense {
 // ───────────────────────────── Operations ─────────────────────────────
 
 model Task {
-  id           String    @id @default(cuid())
+  /// Concurrency token: bumped inside transactions to serialise concurrent writers (MongoDB has no SELECT … FOR UPDATE).
+  lockVersion Int @default(0)
+  id           String    @id @default(cuid()) @map("_id")
   bookingId    String
   booking      Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   title        String
@@ -944,7 +962,7 @@ model Task {
   isMilestone  Boolean   @default(false)
   visibleToClient Boolean @default(false)
   dependsOnId  String?
-  dependsOn    Task?     @relation("TaskDependency", fields: [dependsOnId], references: [id], onDelete: SetNull)
+  dependsOn    Task?     @relation("TaskDependency", fields: [dependsOnId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   dependents   Task[]    @relation("TaskDependency")
   checklist    Json      @default("[]") // [{id, label, done}]
   sortOrder    Int       @default(0)
@@ -960,7 +978,7 @@ model Task {
 }
 
 model TaskComment {
-  id        String   @id @default(cuid())
+  id        String   @id @default(cuid()) @map("_id")
   taskId    String
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   authorId  String?
@@ -970,7 +988,7 @@ model TaskComment {
 }
 
 model TaskTemplate {
-  id        String   @id @default(cuid())
+  id        String   @id @default(cuid()) @map("_id")
   name      String
   eventType String   @default("")
   /** [{title, phase, offsetDays (relative to event date), priority, isMilestone, visibleToClient, checklist: string[]}] */
@@ -980,7 +998,7 @@ model TaskTemplate {
 }
 
 model CalendarEntry {
-  id         String    @id @default(cuid())
+  id         String    @id @default(cuid()) @map("_id")
   title      String
   type       String    @default("OTHER") // CONSULTATION | VENDOR_DELIVERY | DEADLINE | MEETING | SITE_VISIT | OTHER
   startsAt   DateTime
@@ -1002,7 +1020,7 @@ model CalendarEntry {
 }
 
 model Vendor {
-  id               String   @id @default(cuid())
+  id               String   @id @default(cuid()) @map("_id")
   name             String
   category         String
   contactName      String   @default("")
@@ -1029,7 +1047,7 @@ model Vendor {
 }
 
 model VendorAssignment {
-  id               String    @id @default(cuid())
+  id               String    @id @default(cuid()) @map("_id")
   vendorId         String
   vendor           Vendor    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   bookingId        String
@@ -1051,7 +1069,9 @@ model VendorAssignment {
 }
 
 model Venue {
-  id            String   @id @default(cuid())
+  /// Concurrency token: bumped inside transactions to serialise concurrent writers (MongoDB has no SELECT … FOR UPDATE).
+  lockVersion Int @default(0)
+  id            String   @id @default(cuid()) @map("_id")
   slug          String   @unique
   name          String
   city          String   @default("")
@@ -1083,7 +1103,9 @@ model Venue {
 }
 
 model Resource {
-  id          String   @id @default(cuid())
+  /// Concurrency token: bumped inside transactions to serialise concurrent writers (MongoDB has no SELECT … FOR UPDATE).
+  lockVersion Int @default(0)
+  id          String   @id @default(cuid()) @map("_id")
   name        String
   category    String // Lighting | Sound | Furniture | Decor | Staging | Other
   sku         String?  @unique
@@ -1103,14 +1125,14 @@ model Resource {
 }
 
 model ResourceAllocation {
-  id          String    @id @default(cuid())
+  id          String    @id @default(cuid()) @map("_id")
   resourceId  String
   resource    Resource  @relation(fields: [resourceId], references: [id], onDelete: Restrict)
   bookingId   String
   booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   quantity    Int
-  fromDate    DateTime  @db.Date
-  toDate      DateTime  @db.Date
+  fromDate    DateTime 
+  toDate      DateTime 
   status      String    @default("RESERVED") // RESERVED | DISPATCHED | RETURNED | CANCELLED
   returnedQty Int?
   damagedQty  Int       @default(0)
@@ -1125,7 +1147,9 @@ model ResourceAllocation {
 // ───────────────────────────── Guests & microsites ─────────────────────────────
 
 model Guest {
-  id          String    @id @default(cuid())
+  /// Concurrency token: bumped inside transactions to serialise concurrent writers (MongoDB has no SELECT … FOR UPDATE).
+  lockVersion Int @default(0)
+  id          String    @id @default(cuid()) @map("_id")
   bookingId   String
   booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   name        String
@@ -1150,7 +1174,7 @@ model Guest {
 }
 
 model EventMicrosite {
-  id          String   @id @default(cuid())
+  id          String   @id @default(cuid()) @map("_id")
   bookingId   String   @unique
   booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   slug        String   @unique
@@ -1163,7 +1187,7 @@ model EventMicrosite {
   photoShareUrl String @default("")
   showCountdown Boolean @default(true)
   rsvpEnabled Boolean  @default(true)
-  rsvpDeadline DateTime? @db.Date
+  rsvpDeadline DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -1171,7 +1195,7 @@ model EventMicrosite {
 // ───────────────────────────── Notifications ─────────────────────────────
 
 model Notification {
-  id        String    @id @default(cuid())
+  id        String    @id @default(cuid()) @map("_id")
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String
@@ -1184,7 +1208,7 @@ model Notification {
 }
 
 model EmailTemplate {
-  key       String   @id
+  key       String   @id @map("_id")
   name      String
   subject   String
   body      String // markdown-ish text with {{variables}}
@@ -1193,7 +1217,7 @@ model EmailTemplate {
 }
 
 model OutboundMessage {
-  id            String    @id @default(cuid())
+  id            String    @id @default(cuid()) @map("_id")
   channel       String // EMAIL | WHATSAPP
   to            String
   templateKey   String?
@@ -1216,13 +1240,13 @@ model OutboundMessage {
 }
 
 model JobLock {
-  name      String   @id
+  name      String   @id @map("_id")
   lockedAt  DateTime
   lockedBy  String
   expiresAt DateTime
 }
 
 model Counter {
-  key   String @id // e.g. INQ-2026, QT-2026
+  key   String @id @map("_id") // e.g. INQ-2026, QT-2026
   value Int    @default(0)
 }

@@ -7,7 +7,7 @@
 | Monorepo | npm workspaces: `shared`, `server`, `client` | One source of truth for validation rules, money maths and the CMS section registry |
 | Shared | TypeScript + zod | The server validates with the same schemas the admin forms and the public renderer use |
 | Backend | Node 20+, Express, TypeScript | Mature, simple to deploy anywhere |
-| Database | PostgreSQL + Prisma (6.x) | Relational integrity for bookings/payments, transactions, migrations |
+| Database | MongoDB (replica set) + Prisma 6 MongoDB connector | Flexible documents for CMS content; multi-document ACID transactions for bookings/payments; typed queries |
 | Auth | Server-side sessions (random token in an httpOnly cookie, SHA-256 hash in `Session`), double-submit CSRF, optional TOTP MFA | Revocable sessions, no tokens in JS, simple "log out everywhere" |
 | Frontend | React 18 + Vite + TypeScript + Tailwind, TanStack Query, React Hook Form + zod | Fast, code-split, typed forms |
 | Motion / 3D | Framer Motion, GSAP (selected scroll scenes), Lenis smooth scroll, React Three Fiber for the optional 3D stage | Cinematic but `prefers-reduced-motion` aware, with static fallbacks |
@@ -16,7 +16,7 @@
 | Payments | Razorpay (server-created orders, signature + webhook verification), sandbox provider for local testing | Spec requirement; sandbox is refused in production |
 | Email | SMTP (nodemailer) or Resend HTTP API; outbound queue with retries and logs | No message is ever shown as "sent" without a provider |
 | PDF | pdfkit (server-side) | Branded quotations and invoices |
-| Tests | Vitest + Supertest against a real PostgreSQL test database | Critical workflows tested end-to-end through the API |
+| Tests | Vitest + Supertest against a real MongoDB test database | Critical workflows tested end-to-end through the API |
 
 ## Key decisions
 
@@ -31,6 +31,11 @@
   bookings whose `clientId` matches their account — IDs are never trusted alone).
 - **Pipeline as explicit state machines** (`shared/src/workflow.ts`). An inquiry is never a booking; a booking
   only becomes `CONFIRMED` after contract + verified advance payment (or an audited manual override).
+- **Concurrency on MongoDB.** Money and inventory changes run in multi-document transactions (`withTx`). A
+  transaction first bumps the `lockVersion` of the documents it depends on (`lockRows`); concurrent writers then hit a
+  MongoDB write conflict and are retried against fresh state — the equivalent of `SELECT … FOR UPDATE`.
+- **Explicit nulls.** A Prisma extension writes `null` for optional fields on every create, so `{ field: null }`
+  filters behave exactly as they would in SQL (MongoDB otherwise omits unset fields).
 - **Idempotent payments.** Unique provider ids, `WebhookEvent(provider, eventId)` uniqueness and transactional
   status transitions make duplicate webhooks and double callbacks harmless.
 - **Honest integrations.** Missing credentials produce clear "not configured" states, never fake success.

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { VENDOR_CATEGORIES } from '@maison/shared';
-import { prisma, type Prisma } from '../config/db';
+import { prisma, type Prisma, withTx } from '../config/db';
 import { AppError } from '../lib/AppError';
 import { toCsv } from '../lib/csv';
 import { isoDate } from '../lib/dates';
@@ -85,13 +85,14 @@ vendorsRouter.get(
     const { page, limit, skip, take } = paginate(q, 200);
     const where = vendorWhere(q);
     const orderBy: Prisma.VendorOrderByWithRelationInput[] =
-      q.sort === 'rating' ? [{ rating: { sort: 'desc', nulls: 'last' } }, { name: 'asc' }] : q.sort === 'recent' ? [{ createdAt: 'desc' }] : [{ name: 'asc' }];
+      q.sort === 'rating' ? [{ rating: 'desc' }, { name: 'asc' }] /* nulls sort last in descending order */ : q.sort === 'recent' ? [{ createdAt: 'desc' }] : [{ name: 'asc' }];
     const [items, total, areas] = await Promise.all([
       prisma.vendor.findMany({ where, orderBy, skip, take, include: { _count: { select: { assignments: true, documents: true } } } }),
       prisma.vendor.count({ where }),
-      prisma.$queryRaw<{ area: string }[]>`SELECT DISTINCT unnest("serviceAreas") AS area FROM "Vendor" ORDER BY area`,
+      prisma.vendor.findMany({ select: { serviceAreas: true } }),
     ]);
-    ok(res, items, { ...pageMeta(page, limit, total), categories: VENDOR_CATEGORIES, serviceAreas: areas.map((a) => a.area) });
+    const serviceAreas = [...new Set(areas.flatMap((a) => a.serviceAreas))].sort((a, b) => a.localeCompare(b));
+    ok(res, items, { ...pageMeta(page, limit, total), categories: VENDOR_CATEGORIES, serviceAreas });
   }),
 );
 
@@ -139,7 +140,9 @@ vendorsRouter.get(
   validate({ query: z.object({ bookingId: z.string().min(1).max(40) }) }),
   ah(async (req, res) => {
     const { bookingId } = qry<{ bookingId: string }>(req);
-    const items = await prisma.vendorAssignment.findMany({ where: { bookingId }, include: assignmentInclude, orderBy: [{ deliveryAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }] });
+    const items = (await prisma.vendorAssignment.findMany({ where: { bookingId }, include: assignmentInclude, orderBy: [{ deliveryAt: 'asc' }, { createdAt: 'asc' }] }))
+      // Deliveries with a date first; undated ones last (MongoDB sorts nulls first).
+      .sort((a, b) => Number(!a.deliveryAt) - Number(!b.deliveryAt));
     const paid = await prisma.expense.groupBy({ by: ['assignmentId', 'status'], where: { bookingId, assignmentId: { in: items.map((i) => i.id) } }, _sum: { amountMinor: true } });
     ok(
       res,
@@ -176,7 +179,7 @@ vendorsRouter.post(
     if (!booking) throw AppError.notFound('Booking');
     if (vendor.status === 'BLOCKED') throw AppError.conflict(`${vendor.name} is blocked and cannot be assigned`);
     if (booking.status === 'CANCELLED') throw AppError.conflict('This booking is cancelled');
-    const row = await prisma.$transaction(async (tx) => {
+    const row = await withTx(async (tx) => {
       const poNumber = await nextNumber('PO', tx);
       return tx.vendorAssignment.create({
         data: {
@@ -314,7 +317,7 @@ vendorsRouter.post(
       .parse(req.body ?? {});
     const stored = await storeFile(file.buffer, file.originalname, { isPrivate: true, allow: ['DOCUMENT', 'IMAGE'] });
     const filename = file.originalname.slice(0, 200) || 'document';
-    const doc = await prisma.$transaction(async (tx) => {
+    const doc = await withTx(async (tx) => {
       const media = await tx.mediaAsset.create({
         data: { ...stored, filename, isPrivate: true, folder: 'Vendors', uploadedById: req.user!.id, tags: [] },
       });

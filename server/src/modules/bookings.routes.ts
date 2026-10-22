@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { BOOKING_STATUSES } from '@maison/shared';
-import { prisma } from '../config/db';
+import { prisma, withTx } from '../config/db';
 import { AppError } from '../lib/AppError';
 import { toCsv } from '../lib/csv';
 import { isoDate, toDateOnly } from '../lib/dates';
@@ -112,7 +112,7 @@ bookingsRouter.post(
   }),
   ah(async (req, res) => {
     const b = req.body;
-    const booking = await prisma.$transaction(async (tx) => {
+    const booking = await withTx(async (tx) => {
       if (b.venueId) await assertVenueAvailable(tx, b.venueId, toDateOnly(b.eventDate)!, toDateOnly(b.eventEndDate), undefined);
       const venue = b.venueId ? await tx.venue.findUnique({ where: { id: b.venueId } }) : null;
       return tx.booking.create({
@@ -188,7 +188,7 @@ bookingsRouter.patch(
   ah(async (req, res) => {
     const before = await prisma.booking.findUniqueOrThrow({ where: { id: req.params.id } });
     const body = req.body;
-    const updated = await prisma.$transaction(async (tx) => {
+    const updated = await withTx(async (tx) => {
       const eventDate = body.eventDate ? toDateOnly(body.eventDate)! : before.eventDate;
       const eventEnd = body.eventEndDate !== undefined ? toDateOnly(body.eventEndDate) : before.eventEndDate;
       const venueId = body.venueId !== undefined ? body.venueId : before.venueId;
@@ -267,7 +267,7 @@ bookingsRouter.put(
     for (const ex of b.installments) {
       if (!keep.has(ex.id) && Number(ex.paidMinor) > 0) throw AppError.conflict(`“${ex.label}” has payments and cannot be removed`);
     }
-    await prisma.$transaction(async (tx) => {
+    await withTx(async (tx) => {
       await tx.installment.deleteMany({ where: { bookingId: b.id, id: { notIn: [...keep] as string[] }, paidMinor: 0 } });
       for (const [i, inst] of req.body.installments.entries()) {
         const existing = b.installments.find((x) => x.id === inst.id);
@@ -321,7 +321,7 @@ bookingsRouter.post(
   ah(async (req, res) => {
     const cr = await prisma.changeRequest.findUniqueOrThrow({ where: { id: req.params.cid }, include: { booking: { include: { client: true } } } });
     if (cr.status !== 'OPEN') throw AppError.conflict('Already resolved');
-    await prisma.$transaction(async (tx) => {
+    await withTx(async (tx) => {
       if (req.body.decision === 'APPROVED' && cr.type === 'RESCHEDULE' && cr.requestedDate && req.body.applyNewDate) {
         if (cr.booking.venueId) await assertVenueAvailable(tx, cr.booking.venueId, cr.requestedDate, null, cr.bookingId);
         await tx.booking.update({ where: { id: cr.bookingId }, data: { eventDate: cr.requestedDate, eventEndDate: null } });

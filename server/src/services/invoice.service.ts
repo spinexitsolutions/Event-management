@@ -1,4 +1,4 @@
-import { prisma } from '../config/db';
+import { prisma, withTx } from '../config/db';
 import { AppError } from '../lib/AppError';
 import { isoDate } from '../lib/dates';
 import { bookingFinancials } from './booking.service';
@@ -12,7 +12,7 @@ import { getBusiness } from './siteConfig.service';
  */
 export async function issueInstallmentInvoice(installmentId: string, userId: string) {
   const biz = await getBusiness();
-  return prisma.$transaction(async (tx) => {
+  return withTx(async (tx) => {
     const inst = await tx.installment.findUnique({ where: { id: installmentId }, include: { booking: true, invoices: { where: { status: { not: 'VOID' } } } } });
     if (!inst) throw AppError.notFound('Instalment');
     if (inst.invoices.length) throw AppError.conflict('An invoice already exists for this instalment');
@@ -43,7 +43,7 @@ export async function issueInstallmentInvoice(installmentId: string, userId: str
 export async function issueFinalInvoice(bookingId: string, userId: string, notes = '') {
   const biz = await getBusiness();
   const fin = await bookingFinancials(bookingId);
-  return prisma.$transaction(async (tx) => {
+  return withTx(async (tx) => {
     const b = await tx.booking.findUniqueOrThrow({ where: { id: bookingId }, include: { services: { orderBy: { sortOrder: 'asc' } }, invoices: { where: { kind: 'FINAL', status: { not: 'VOID' } } }, quotation: { include: { versions: true } } } });
     if (b.invoices.length) throw AppError.conflict('A final invoice already exists. Void it first to reissue.');
     if (!['IN_PROGRESS', 'AWAITING_FINAL_PAYMENT', 'COMPLETED'].includes(b.status)) throw AppError.conflict('Final invoices are issued once the event is in execution or complete');

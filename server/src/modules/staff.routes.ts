@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { ALL_PERMISSIONS, PERMISSIONS, type Permission } from '@maison/shared';
-import { prisma, type Prisma, type Tx } from '../config/db';
+import { prisma, type Prisma, type Tx, withTx, lockRows } from '../config/db';
 import { env } from '../config/env';
 import { AppError } from '../lib/AppError';
 import { addDays, toDateOnly } from '../lib/dates';
@@ -84,7 +84,8 @@ const isSuper = (req: Request) => req.user!.roleKey === SUPER;
 
 /** Throws when the change would leave no active Super Admin. Call inside a transaction. */
 async function assertKeepsSuperAdmin(tx: Tx, userId: string) {
-  await tx.$queryRaw`SELECT "id" FROM "User" WHERE "roleKey" = ${SUPER} FOR UPDATE`;
+  // Serialise every change that could affect the set of active Super Admins on the Super Admin role document.
+  await lockRows(tx, 'role', { key: SUPER });
   const others = await tx.user.count({ where: { roleKey: SUPER, status: 'ACTIVE', id: { not: userId } } });
   if (others === 0) throw AppError.conflict('This is the last active Super Admin. Promote another user to Super Admin first.');
 }
@@ -217,7 +218,7 @@ staffRouter.patch(
       if (role.key === SUPER && !isSuper(req)) throw AppError.forbidden('Only a Super Admin can grant Super Admin');
       if (target.id === req.user!.id) throw AppError.conflict('You cannot change your own role. Ask another administrator.');
     }
-    const row = await prisma.$transaction(async (tx) => {
+    const row = await withTx(async (tx) => {
       if (roleChange && target.roleKey === SUPER && target.status === 'ACTIVE') await assertKeepsSuperAdmin(tx, target.id);
       return tx.user.update({
         where: { id: target.id },
@@ -249,7 +250,7 @@ staffRouter.post(
     if (target.id === req.user!.id) throw AppError.conflict('You cannot deactivate your own account');
     if (target.roleKey === SUPER && !isSuper(req)) throw AppError.forbidden('Only a Super Admin can deactivate a Super Admin');
     if (target.status === 'DEACTIVATED') return ok(res, { id: target.id, status: target.status });
-    const row = await prisma.$transaction(async (tx) => {
+    const row = await withTx(async (tx) => {
       if (target.roleKey === SUPER && target.status === 'ACTIVE') await assertKeepsSuperAdmin(tx, target.id);
       const u = await tx.user.update({ where: { id: target.id }, data: { status: 'DEACTIVATED' }, select: userSelect });
       await tx.session.deleteMany({ where: { userId: target.id } });

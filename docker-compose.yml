@@ -1,24 +1,22 @@
-# Local production-like stack: PostgreSQL + the app.  `docker compose up --build`
+# Local production-like stack: MongoDB (single-node replica set) + the app.  `docker compose up --build`
 services:
   db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: events
-    volumes: [pgdata:/var/lib/postgresql/data]
-    ports: ['5432:5432']
+    image: mongo:8
+    command: ['--replSet', 'rs0', '--bind_ip_all']
+    ports: ['27017:27017']
+    volumes: [mongodata:/data/db]
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      # Initiates the replica set on first start, then reports healthy once this node is primary.
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'db:27017' }] }).ok }"]
       interval: 5s
-      retries: 10
+      retries: 20
   app:
     build: .
     depends_on:
       db: { condition: service_healthy }
     env_file: server/.env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/events
+      DATABASE_URL: mongodb://db:27017/events?replicaSet=rs0
       NODE_ENV: production
       APP_URL: http://localhost:4000
       API_URL: http://localhost:4000
@@ -26,4 +24,4 @@ services:
       COOKIE_SECURE: 'false'
     ports: ['4000:4000']
 volumes:
-  pgdata:
+  mongodata:

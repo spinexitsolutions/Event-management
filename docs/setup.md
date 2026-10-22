@@ -2,7 +2,10 @@
 
 ## Requirements
 - Node.js 20.11+ (22 recommended — see `.nvmrc`)
-- PostgreSQL 14+ (16 recommended). Docker users: `docker compose up -d db`
+- MongoDB 6+ (8 recommended) **running as a replica set** (needed for transactions). Options:
+  - Docker: `docker compose up -d db` (starts a single-node replica set), or
+  - local `mongod --replSet rs0 --dbpath <dir>` then once: `mongosh --eval "rs.initiate()"`, or
+  - a free MongoDB Atlas cluster (already a replica set).
 
 ## 1. Install
 ```bash
@@ -10,14 +13,13 @@ npm install
 cp server/.env.example server/.env
 ```
 Edit `server/.env`:
-- `DATABASE_URL` — e.g. `postgresql://postgres:postgres@localhost:5432/events_dev`
+- `DATABASE_URL` — e.g. `mongodb://127.0.0.1:27017/events_dev?replicaSet=rs0&directConnection=true` (Atlas: `mongodb+srv://…/events`)
 - `APP_SECRET` — `openssl rand -hex 32`
 - Leave `PAYMENT_PROVIDER=sandbox`, `EMAIL_PROVIDER=none`, `STORAGE_DRIVER=local` for local work.
 
 ## 2. Database
 ```bash
-createdb events_dev            # or let Prisma create it
-npm run db:migrate             # applies migrations (prisma migrate dev)
+npm run db:push                # creates collections and indexes (prisma db push + partial unique indexes)
 npm run seed                   # roles, theme, global settings, pages, starter catalogue
 npm run seed -- --demo         # optional: SAMPLE venues, portfolio, vendors, clients, bookings, payments
 ```
@@ -41,12 +43,11 @@ npm run dev     # API http://localhost:4000 · website http://localhost:5173 (Vi
 ```bash
 npm run typecheck && npm run lint && npm test && npm run build
 ```
-Server tests run against a real PostgreSQL **test** database: create `events_test` (or set `TEST_DATABASE_URL`).
-The test setup recreates that database's schema on every run and refuses to touch a database whose name does not end in `_test`.
+Server tests run against a real MongoDB **test** database `events_test` on the same replica set (override with `TEST_DATABASE_URL`).
+The test setup drops and recreates that database on every run and refuses to touch a database whose name does not end in `_test`.
 
 ## Useful scripts
 | Command | What it does |
 | --- | --- |
-| `npm run db:migrate -w server -- --name <change>` | Create a migration after editing `server/prisma/schema.prisma` |
-| `npm run db:deploy` | Apply migrations (production / CI) |
+| `npm run db:push` | Sync collections and indexes after editing `server/prisma/schema.prisma` |
 | `node scripts/gen-api-docs.mjs` | Regenerate `docs/api-reference.md` from the route files |

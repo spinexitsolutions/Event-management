@@ -11,10 +11,10 @@
     "lint": "eslint src",
     "test": "vitest run",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
     "seed": "tsx --env-file-if-exists=.env src/scripts/seed.ts",
-    "create-admin": "tsx --env-file-if-exists=.env src/scripts/createAdmin.ts"
+    "create-admin": "tsx --env-file-if-exists=.env src/scripts/createAdmin.ts",
+    "db:push": "prisma db push && tsx --env-file-if-exists=.env src/scripts/ensureIndexes.ts",
+    "db:indexes": "tsx --env-file-if-exists=.env src/scripts/ensureIndexes.ts"
   },
   "dependencies": {
     "@maison/shared": "1.0.0",

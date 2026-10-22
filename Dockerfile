@@ -28,5 +28,6 @@ WORKDIR /app/server
 USER node
 EXPOSE 4000
 ENTRYPOINT ["/usr/bin/tini", "--"]
-# Apply pending migrations, then start the API (which also serves the built website).
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+# Sync MongoDB indexes with the schema, then start the API (which also serves the built website
+# and ensures the partial unique indexes on start).
+CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/index.js"]

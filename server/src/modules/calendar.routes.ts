@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { prisma, type Prisma, type Tx } from '../config/db';
+import { prisma, type Prisma, type Tx, withTx, lockRows } from '../config/db';
 import { AppError } from '../lib/AppError';
 import { addDays, isoDate, toDateOnly } from '../lib/dates';
 import { ah, ok, qry } from '../lib/http';
@@ -324,11 +324,11 @@ calendarRouter.post(
     const b = req.body as z.infer<typeof entryBase>;
     await assertRefs(b);
     const { start, end, overlapEnd } = resolveTimes(b.startsAt, b.endsAt, b.allDay);
-    const { row, warnings } = await prisma.$transaction(
+    const { row, warnings } = await withTx(
       async (tx) => {
         let venueBookings: Awaited<ReturnType<typeof venueChecks>> = [];
         if (b.venueId) {
-          await tx.$queryRaw`SELECT "id" FROM "Venue" WHERE "id" = ${b.venueId} FOR UPDATE`;
+          await lockRows(tx, 'venue', { id: b.venueId });
           venueBookings = await venueChecks(tx, b.venueId, start, overlapEnd, undefined, b.bookingId);
         }
         const row = await tx.calendarEntry.create({
@@ -353,10 +353,10 @@ calendarRouter.put(
     if (!existing) throw AppError.notFound('Calendar entry');
     await assertRefs(b);
     const { start, end, overlapEnd } = resolveTimes(b.startsAt, b.endsAt, b.allDay);
-    const { row, warnings } = await prisma.$transaction(async (tx) => {
+    const { row, warnings } = await withTx(async (tx) => {
       let venueBookings: Awaited<ReturnType<typeof venueChecks>> = [];
       if (b.venueId) {
-        await tx.$queryRaw`SELECT "id" FROM "Venue" WHERE "id" = ${b.venueId} FOR UPDATE`;
+        await lockRows(tx, 'venue', { id: b.venueId });
         venueBookings = await venueChecks(tx, b.venueId, start, overlapEnd, existing.id, b.bookingId);
       }
       const row = await tx.calendarEntry.update({

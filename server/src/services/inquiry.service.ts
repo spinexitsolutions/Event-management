@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import { INQUIRY_PUBLIC_LABELS, type InquirySubmit } from '@maison/shared';
-import { prisma } from '../config/db';
+import { prisma, withTx } from '../config/db';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { AppError } from '../lib/AppError';
@@ -52,7 +52,7 @@ export async function createInquiry(req: Request, input: InquirySubmit, opts: { 
     : [];
 
   const reference = await uniqueReference();
-  const inquiry = await prisma.$transaction(async (tx) => {
+  const inquiry = await withTx(async (tx) => {
     const existing = await tx.client.findUnique({ where: { email: input.email } });
     const client =
       existing ??

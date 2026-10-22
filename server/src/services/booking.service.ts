@@ -1,6 +1,6 @@
 import type { Booking, BookingStatus } from '@prisma/client';
 import { canTransitionBooking, formatMoney, milestoneDueDate, type Milestone } from '@maison/shared';
-import { prisma, type Tx } from '../config/db';
+import { prisma, type Tx, withTx, lockRows } from '../config/db';
 import { env } from '../config/env';
 import { logger } from '../config/logger';
 import { AppError } from '../lib/AppError';
@@ -22,9 +22,8 @@ export async function bookingFinancials(bookingId: string, tx: Tx = prisma) {
 
 /** Creates a booking from an ACCEPTED quotation: services, installment schedule from milestones, venue check. */
 export async function convertQuotationToBooking(quotationId: string, input: { managerId?: string | null; venueId?: string | null; startTime?: string; eventEndDate?: string | null }, userId: string) {
-  return prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Quotation" WHERE id = ${quotationId} FOR UPDATE`;
-    if (!locked.length) throw AppError.notFound('Quotation');
+  return withTx(async (tx) => {
+    if (!(await lockRows(tx, 'quotation', { id: quotationId }))) throw AppError.notFound('Quotation');
     const q = await tx.quotation.findUniqueOrThrow({ where: { id: quotationId }, include: { versions: true, inquiry: true, client: true } });
     if (q.status === 'CONVERTED') throw AppError.conflict('This quotation has already been converted to a booking');
     if (q.status !== 'ACCEPTED' || !q.acceptedVersion) throw AppError.conflict('Only quotations accepted by the client can be converted');

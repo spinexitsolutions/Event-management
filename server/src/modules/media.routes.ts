@@ -146,67 +146,70 @@ mediaRouter.delete(
   }),
 );
 
-/* ───── URL reference tracking across content (JSON text search) ───── */
+/* ───── URL reference tracking across content ───── */
 
-const TEXT_TABLES: { table: string; label: string; titleCol: string }[] = [
-  { table: 'Page', label: 'Page', titleCol: 'title' },
-  { table: 'SiteConfig', label: 'Site settings', titleCol: 'key' },
-  { table: 'EventCategory', label: 'Event category', titleCol: 'name' },
-  { table: 'Service', label: 'Service', titleCol: 'name' },
-  { table: 'Package', label: 'Package', titleCol: 'name' },
-  { table: 'PortfolioProject', label: 'Portfolio project', titleCol: 'title' },
-  { table: 'Testimonial', label: 'Testimonial', titleCol: 'clientName' },
-  { table: 'TeamMember', label: 'Team member', titleCol: 'name' },
-  { table: 'ClientLogo', label: 'Client logo', titleCol: 'name' },
-  { table: 'BlogPost', label: 'Blog post', titleCol: 'title' },
-  { table: 'Venue', label: 'Venue', titleCol: 'name' },
+/**
+ * Where media URLs can appear. `json` fields hold nested objects/arrays (sections, galleries, settings);
+ * `text` fields hold the URL directly. Content collections are small, so scanning them in the app is cheap
+ * and works identically on any database.
+ */
+const REF_FIELDS: { model: string; label: string; title: string; json?: string[]; text?: string[]; idField?: string }[] = [
+  { model: 'page', label: 'Page', title: 'title', json: ['draft'] },
+  { model: 'pageVersion', label: 'Published page version', title: 'version', json: ['content'] },
+  { model: 'siteConfig', label: 'Site settings', title: 'key', json: ['draft', 'published'], idField: 'key' },
+  { model: 'siteConfigVersion', label: 'Site settings version', title: 'version', json: ['data'] },
+  { model: 'eventCategory', label: 'Event category', title: 'name', json: ['gallery', 'seo'], text: ['coverImage'] },
+  { model: 'service', label: 'Service', title: 'name', json: ['gallery', 'seo'], text: ['coverImage'] },
+  { model: 'package', label: 'Package', title: 'name', json: ['gallery'], text: ['coverImage'] },
+  { model: 'portfolioProject', label: 'Portfolio project', title: 'title', json: ['gallery', 'beforeAfter', 'seo'], text: ['coverImage', 'videoUrl'] },
+  { model: 'testimonial', label: 'Testimonial', title: 'clientName', text: ['photoUrl'] },
+  { model: 'teamMember', label: 'Team member', title: 'name', text: ['photoUrl'] },
+  { model: 'clientLogo', label: 'Client logo', title: 'name', text: ['logoUrl'] },
+  { model: 'blogPost', label: 'Blog post', title: 'title', json: ['seo'], text: ['coverImage'] },
+  { model: 'venue', label: 'Venue', title: 'name', json: ['images'], text: ['coverImage'] },
 ];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const delegate = (model: string) => (prisma as any)[model];
+
+async function scan(def: (typeof REF_FIELDS)[number]) {
+  const select: Record<string, true> = { [def.idField ?? 'id']: true, [def.title]: true };
+  for (const f of [...(def.json ?? []), ...(def.text ?? [])]) select[f] = true;
+  return delegate(def.model).findMany({ select }) as Promise<Record<string, unknown>[]>;
+}
 
 export async function findUrlUsage(url: string) {
   if (!url) return [];
   const out: { type: string; title: string }[] = [];
-  for (const t of TEXT_TABLES) {
-    const rows = await prisma.$queryRawUnsafe<{ title: string }[]>(`SELECT "${t.titleCol}"::text AS title FROM "${t.table}" WHERE row_to_json("${t.table}")::text LIKE $1 LIMIT 20`, `%${url.replace(/[%_]/g, '\\$&')}%`);
-    for (const r of rows) out.push({ type: t.label, title: r.title });
+  for (const def of REF_FIELDS) {
+    if (def.model === 'pageVersion' || def.model === 'siteConfigVersion') continue; // history, not live usage
+    for (const row of await scan(def)) {
+      const hit = (def.text ?? []).some((f) => row[f] === url) || (def.json ?? []).some((f) => row[f] != null && JSON.stringify(row[f]).includes(url));
+      if (hit) out.push({ type: def.label, title: String(row[def.title] ?? '') });
+    }
   }
   return out;
 }
 
-/** Rewrites URL references inside text/JSON columns of content tables. Returns rows touched. */
+/** Rewrites URL references in content (including published snapshots, so live pages never show a broken image). Returns documents touched. */
 async function replaceUrlReferences(oldUrl: string, newUrl: string) {
   if (!oldUrl || oldUrl === newUrl) return 0;
+  const enc = (v: string) => JSON.stringify(v).slice(1, -1); // the URL as it appears inside serialised JSON
   let total = 0;
-  const jsonCols: Record<string, string[]> = {
-    Page: ['draft'],
-    // Published snapshots are updated too, so replacing a file never leaves a live page with a broken image.
-    PageVersion: ['content'],
-    SiteConfigVersion: ['data'],
-    SiteConfig: ['draft', 'published'],
-    EventCategory: ['gallery', 'seo'],
-    Service: ['gallery', 'seo'],
-    Package: ['gallery'],
-    PortfolioProject: ['gallery', 'beforeAfter', 'seo'],
-    Venue: ['images'],
-    BlogPost: ['seo'],
-  };
-  const textCols: Record<string, string[]> = {
-    EventCategory: ['coverImage'],
-    Service: ['coverImage'],
-    Package: ['coverImage'],
-    PortfolioProject: ['coverImage', 'videoUrl'],
-    Testimonial: ['photoUrl'],
-    TeamMember: ['photoUrl'],
-    ClientLogo: ['logoUrl'],
-    BlogPost: ['coverImage'],
-    Venue: ['coverImage'],
-  };
-  for (const [table, cols] of Object.entries(jsonCols)) {
-    for (const c of cols) {
-      total += await prisma.$executeRawUnsafe(`UPDATE "${table}" SET "${c}" = replace("${c}"::text, $1, $2)::jsonb WHERE "${c}"::text LIKE $3`, oldUrl, newUrl, `%${oldUrl.replace(/[%_]/g, '\\$&')}%`);
+  for (const def of REF_FIELDS) {
+    for (const row of await scan(def)) {
+      const data: Record<string, unknown> = {};
+      for (const f of def.text ?? []) if (row[f] === oldUrl) data[f] = newUrl;
+      for (const f of def.json ?? []) {
+        if (row[f] == null) continue;
+        const str = JSON.stringify(row[f]);
+        if (str.includes(enc(oldUrl))) data[f] = JSON.parse(str.split(enc(oldUrl)).join(enc(newUrl)));
+      }
+      if (Object.keys(data).length) {
+        await delegate(def.model).update({ where: { [def.idField ?? 'id']: row[def.idField ?? 'id'] }, data });
+        total++;
+      }
     }
-  }
-  for (const [table, cols] of Object.entries(textCols)) {
-    for (const c of cols) total += await prisma.$executeRawUnsafe(`UPDATE "${table}" SET "${c}" = $2 WHERE "${c}" = $1`, oldUrl, newUrl);
   }
   return total;
 }

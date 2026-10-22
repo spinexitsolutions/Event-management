@@ -3,7 +3,11 @@
   "private": true,
   "version": "1.0.0",
   "description": "Premium event management platform: cinematic public website, CMS/theme builder, CRM, quotations, bookings, payments and operations.",
-  "workspaces": ["shared", "server", "client"],
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
   "scripts": {
     "dev": "concurrently -n server,client -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w server && npm run build -w client",
@@ -11,11 +15,14 @@
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client",
     "lint": "npm run lint -w server && npm run lint -w client",
     "test": "npm run test -w shared && npm run test -w server && npm run test -w client",
-    "db:migrate": "npm run db:migrate -w server",
-    "db:deploy": "npm run db:deploy -w server",
     "seed": "npm run seed -w server",
-    "create-admin": "npm run create-admin -w server"
+    "create-admin": "npm run create-admin -w server",
+    "db:push": "npm run db:push -w server"
   },
-  "devDependencies": { "concurrently": "^9.1.0" },
-  "engines": { "node": ">=20.11" }
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
 }

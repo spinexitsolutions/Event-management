@@ -4,7 +4,7 @@ A full-stack platform for a luxury event agency: a cinematic, fully CMS-driven p
 inquiries, CRM, quotations, bookings, client portal, payments, vendors, inventory, tasks, calendar, guests/RSVP, notifications and reports.
 
 > **Stack:** React 18 + Vite + TypeScript + Tailwind · Framer Motion, Lenis, Swiper, React Three Fiber · Node + Express + TypeScript ·
-> PostgreSQL + Prisma · zod everywhere (shared schemas) · Razorpay · SMTP/Resend · Cloudinary · Vitest + Supertest.
+> MongoDB + Prisma · zod everywhere (shared schemas) · Razorpay · SMTP/Resend · Cloudinary · Vitest + Supertest.
 
 ## What's inside
 | Area | Highlights |
@@ -21,7 +21,7 @@ inquiries, CRM, quotations, bookings, client portal, payments, vendors, inventor
 ```bash
 npm install
 cp server/.env.example server/.env        # set DATABASE_URL and APP_SECRET
-npm run db:migrate && npm run seed -- --demo
+npm run db:push && npm run seed -- --demo
 npm run create-admin -- --email you@company.com --name "Your Name"
 npm run dev                               # http://localhost:5173  (admin: /admin)
 ```

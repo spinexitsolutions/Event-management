@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/scripts/seed.ts', 'src/scripts/createAdmin.ts'],
+  entry: ['src/index.ts', 'src/scripts/seed.ts', 'src/scripts/createAdmin.ts', 'src/scripts/ensureIndexes.ts'],
   format: ['esm'],
   target: 'node20',
   platform: 'node',

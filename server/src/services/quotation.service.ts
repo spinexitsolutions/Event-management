@@ -1,7 +1,7 @@
 import type { Quotation, QuotationVersion } from '@prisma/client';
 import { z } from 'zod';
 import { calculateQuote, formatMoney, quotePricingInputSchema, type QuotePricingInput } from '@maison/shared';
-import { prisma, type Tx } from '../config/db';
+import { prisma, type Tx, withTx, lockRows } from '../config/db';
 import { env } from '../config/env';
 import { AppError } from '../lib/AppError';
 import { isoDate, toDateOnly, addDays, startOfDayUtc } from '../lib/dates';
@@ -55,7 +55,7 @@ export function versionToPricing(v: QuotationVersion): QuotePricingInput {
 
 export async function createQuotation(input: { clientId: string; inquiryId?: string | null; meta: z.infer<typeof quotationMetaSchema>; content: QuotationContent; userId: string; aiDrafted?: boolean }) {
   const biz = await getBusiness();
-  return prisma.$transaction(async (tx) => {
+  return withTx(async (tx) => {
     const client = await tx.client.findUnique({ where: { id: input.clientId } });
     if (!client) throw AppError.notFound('Client');
     if (input.inquiryId) {
@@ -104,7 +104,7 @@ const EDITABLE: Quotation['status'][] = ['DRAFT', 'SENT', 'VIEWED', 'REVISION_RE
  * otherwise the draft version is updated in place.
  */
 export async function saveQuotation(id: string, meta: Partial<z.infer<typeof quotationMetaSchema>>, content: QuotationContent | undefined, userId: string) {
-  return prisma.$transaction(async (tx) => {
+  return withTx(async (tx) => {
     const q = await tx.quotation.findUnique({ where: { id }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
     if (!q) throw AppError.notFound('Quotation');
     if (!EDITABLE.includes(q.status)) throw AppError.conflict(`A ${q.status.toLowerCase()} quotation can no longer be edited`);
@@ -192,9 +192,8 @@ export function pricingWithSelection(v: QuotationVersion, selectedOptionalIds: s
 }
 
 export async function clientAccept(quotationId: string, clientId: string, selectedOptionalIds: string[], userId: string) {
-  return prisma.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Quotation" WHERE id = ${quotationId} AND "clientId" = ${clientId} FOR UPDATE`;
-    if (!rows.length) throw AppError.notFound('Quotation');
+  return withTx(async (tx) => {
+    if (!(await lockRows(tx, 'quotation', { id: quotationId, clientId }))) throw AppError.notFound('Quotation');
     const q = await tx.quotation.findUniqueOrThrow({ where: { id: quotationId }, include: { versions: { orderBy: { version: 'desc' } } } });
     if (!['SENT', 'VIEWED'].includes(q.status)) throw AppError.conflict(q.status === 'ACCEPTED' || q.status === 'CONVERTED' ? 'This proposal has already been accepted' : 'This proposal is not open for acceptance');
     if (q.validUntil && q.validUntil < startOfDayUtc()) {
